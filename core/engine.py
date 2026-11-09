@@ -1060,8 +1060,8 @@ class SignalEngine:
         # are known. Populate it now; the initial indicators snapshot is built
         # earlier and must not read this local before assignment.
         indicators["direction"] = direction
-        # Delta OHLCV does not expose aggressor-side buy/sell volume.
-        # Use completed candle body direction as an explicit participation proxy.
+        # MACD histogram direction is an indicator confirmation for Momentum;
+        # Normal never depends on MACD and no candle-volume proxy is used.
         indicators["macd_direction_ok"] = bool(
             macd_hist is not None and (
                 (direction == "LONG" and macd_hist > 0) or
