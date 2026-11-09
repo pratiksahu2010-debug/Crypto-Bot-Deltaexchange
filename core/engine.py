@@ -760,6 +760,12 @@ class SignalEngine:
         if delay > 0:
             await asyncio.sleep(delay)
 
+    async def _sync_websocket_universe(self, app: Any) -> None:
+        websocket = getattr(app.state, "websocket", None)
+        updater = getattr(websocket, "update_symbols", None)
+        if callable(updater) and settings.enable_websocket:
+            await updater(set(self.symbols.normal_symbols + self.symbols.momentum_symbols))
+
     async def run_scan_loop(self, app: Any) -> None:
         """Run Normal and Momentum on independent candle-boundary schedules.
 
@@ -770,6 +776,7 @@ class SignalEngine:
         # Every symbol fetches and seeds its own current candle history in _process_pair;
         # a separate serial warmup duplicated REST calls and delayed the first scan.
         await self.symbols.refresh_universes()
+        await self._sync_websocket_universe(app)
 
         # A Render restart can occur mid-candle. Do not spend the first scan
         # fetching a full universe only to reject every bar as older than the
@@ -796,6 +803,7 @@ class SignalEngine:
                 # response during its previous cycle.
                 self.symbols._refresh_quarantine_from_rest()
                 self.symbols._select_active_symbols()
+                await self._sync_websocket_universe(app)
 
                 start = utc_now()
                 if engine == "normal":
@@ -807,6 +815,7 @@ class SignalEngine:
                 # Normal is disabled, Momentum owns refresh responsibility.
                 if engine == "normal" or (engine == "momentum" and not settings.enable_normal_engine):
                     await self.symbols.refresh_universes()
+                    await self._sync_websocket_universe(app)
 
                 finished = utc_now()
                 duration_ms = int((finished - start).total_seconds() * 1000)
