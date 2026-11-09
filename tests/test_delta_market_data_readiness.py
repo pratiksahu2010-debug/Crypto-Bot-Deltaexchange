@@ -449,7 +449,7 @@ async def test_websocket_resubscribes_when_active_symbol_universe_changes():
 
 
 @pytest.mark.asyncio
-async def test_primary_candle_freshness_uses_strictest_enabled_engine_age(monkeypatch):
+async def test_primary_candle_fetch_preserves_widest_enabled_engine_age_window(monkeypatch):
     from exchange.delta_rest import DeltaExchangeRest
     from config import settings
 
