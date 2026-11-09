@@ -216,7 +216,12 @@ async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_
     now_ms = int(now.timestamp() * 1000)
     feed = {
         pair: {
-            tf: {"status": "fresh", "observed_at_ms": now_ms}
+            tf: {
+                "status": "fresh",
+                "observed_at_ms": now_ms,
+                "candle_age_seconds": 30.0 if tf == "5m" else 600.0,
+                "last_completed_close_ms": now_ms - (30_000 if tf == "5m" else 600_000),
+            }
             for tf in ("5m", "15m")
         }
         for pair in ("B-BTC_USDT", "B-ETH_USDT")
@@ -458,8 +463,8 @@ async def test_primary_candle_freshness_uses_strictest_enabled_engine_age(monkey
     rest = DeltaExchangeRest()
     rest._canonical_to_delta["B-TEST_USDT"] = "TESTUSD"
 
-    # Last 5m candle closed 90 seconds ago: Momentum's 120s budget would pass,
-    # but Normal is enabled and has a 60s budget, so this shared feed is stale.
+    # Last 5m candle closed 90 seconds ago: keep it available to Momentum's
+    # 120s window; Normal's 60s scanner gate and /health readiness reject it.
     close_ms = now_ms - 90_000
     open_ms = close_ms - 300_000
     rows = [{"time": open_ms // 1000, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}]
@@ -467,10 +472,10 @@ async def test_primary_candle_freshness_uses_strictest_enabled_engine_age(monkey
         return {"success": True, "result": rows}
     rest._get = get
     result = await rest.get_candles("B-TEST_USDT", "5m", limit=1)
-    assert result == []
+    assert len(result) == 1
     status = rest.get_candle_feed_status()["B-TEST_USDT"]["5m"]
-    assert status["status"] == "stale"
-    assert status["error"] == "stale_completed_candles"
+    assert status["status"] == "fresh"
+    assert status["candle_age_seconds"] == 90.0
 
 
 @pytest.mark.asyncio
@@ -498,3 +503,42 @@ async def test_15m_context_allows_one_interval_plus_entry_age(monkeypatch):
     assert len(result) == 1
     status = rest.get_candle_feed_status()["B-TEST_USDT"]["15m"]
     assert status["status"] == "fresh"
+
+
+@pytest.mark.asyncio
+async def test_health_rejects_primary_candle_too_old_for_normal_but_keeps_momentum_window(monkeypatch):
+    from app.health import health
+    from config import settings
+
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_symbol_limit", 1)
+    monkeypatch.setattr(settings, "momentum_symbol_limit", 1)
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    feed = {"B-BTC_USDT": {
+        "5m": {"status": "fresh", "observed_at_ms": now_ms, "candle_age_seconds": 90.0},
+        "15m": {"status": "fresh", "observed_at_ms": now_ms, "candle_age_seconds": 600.0},
+    }}
+    state = {
+        "database": "postgres", "normal_engine": "running", "momentum_engine": "running",
+        "valid_symbols_normal": 1, "valid_symbols_momentum": 1,
+        "scan_task_expected": True, "scan_task_status": "running",
+        "retest_task_status": "running", "telegram_delivery_task_expected": True,
+        "telegram_delivery_task_status": "running",
+        "last_scan_normal": now.isoformat(), "last_scan_momentum": now.isoformat(),
+    }
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        bot_state=state,
+        telegram=SimpleNamespace(bot=object(), admin_ids=[123]),
+        rest=SimpleNamespace(get_candle_feed_status=lambda: feed),
+        symbol_mgr=SimpleNamespace(normal_symbols=["B-BTC_USDT"], momentum_symbols=["B-BTC_USDT"]),
+        websocket=SimpleNamespace(status="reconnecting", reconnect_count=1, symbol_feed_age_seconds={}),
+    )))
+    response = await health(request)
+    assert response.status_code == 503
+    body = json.loads(response.body)
+    assert "per_symbol_candle_data_not_ready" in body["reasons"]
+    assert body["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] == 90.0
