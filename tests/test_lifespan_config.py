@@ -68,3 +68,24 @@ def test_production_requires_strategy_timeframes_5m_and_15m(monkeypatch):
     monkeypatch.setattr(settings, "candle_confirm_tf", "15m")
     with pytest.raises(ValueError, match="requires CANDLE_PRIMARY_TF=5m"):
         validate_runtime_config()
+
+
+
+def test_database_startup_does_not_delete_persistent_signal_state():
+    import inspect
+    from database.db import init_db
+
+    source = inspect.getsource(init_db).upper()
+    assert "DELETE FROM SIGNALS" not in source
+    assert "DELETE FROM WATCHLIST" not in source
+    assert "DELETE FROM SIGNAL_DEDUP" not in source
+    assert "DROP TABLE" not in source
+
+
+def test_signal_engine_does_not_require_orderbook_for_signal_delivery():
+    import inspect
+    from core.engine import SignalEngine
+
+    source = inspect.getsource(SignalEngine)
+    assert "_check_orderbook_spread" not in source
+    assert "get_futures_orderbook" not in source
