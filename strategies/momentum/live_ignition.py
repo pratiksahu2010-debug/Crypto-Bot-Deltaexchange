@@ -46,8 +46,6 @@ class LiveConfig:
     max_elapsed_fraction: float = 0.85  # later than this the closed-candle path is nearly as fast
     min_volume_pace: float = 1.6      # (candle volume / avg volume) / elapsed fraction
     min_volume_floor: float = 0.35    # and at least this share of an average candle already traded
-    min_close_location: float = 0.70
-    min_body_ratio: float = 0.55
     max_pre_extension_atr: float = 2.5  # candle open already this far from EMA21 => run is old
     min_atr_pct: float = 0.05         # ignore dead markets (ATR below 0.05% of price)
     impulse_pace: float = 2.5         # evidence: very fast volume + big move even without structure
@@ -61,9 +59,6 @@ class LiveConfig:
     orb_hold_seconds: float = 8.0     # must stay beyond edge+buffer this long
     orb_min_volume_pace: float = 1.2
     orb_min_volume_floor: float = 0.25
-    orb_min_close_location: float = 0.60
-    orb_min_body_ratio: float = 0.45
-    orb_max_opposing_wick_ratio: float = 0.35
     orb_active_minutes: int = 180
     # --- Shared ------------------------------------------------------------
     min_score: float = 7.0
@@ -199,12 +194,6 @@ def _candle(candle: Dict[str, Any]) -> Optional[Tuple[float, float, float, float
     return o, h, l, c, v, t
 
 
-def _quality(close_location: float, body_ratio: float) -> float:
-    """0..1.5 candle-quality points: close near the extreme and body-dominant."""
-    return 0.75 * min(1.0, max(0.0, (close_location - 0.5) / 0.4)) + \
-        0.75 * min(1.0, max(0.0, (body_ratio - 0.4) / 0.4))
-
-
 def _trend_points(ctx: LiveContext, direction: str, price: float) -> float:
     pts = 0.0
     if ctx.ema9 is not None and ctx.ema21 is not None:
@@ -233,12 +222,12 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
         return _reject("outside_live_window", elapsed_seconds=round(elapsed_ms / 1000, 1))
     if ctx.atr_pct < cfg.min_atr_pct:
         return _reject("atr_too_small")
-    rng = h - l
-    if rng <= 0 or c == o:
-        return _reject("no_range")
-    direction = "LONG" if c > o else "SHORT"
+    # Direction comes from completed-candle EMA alignment, never candle colour.
+    if ctx.ema9 is None or ctx.ema21 is None or ctx.ema9 == ctx.ema21:
+        return _reject("indicator_direction_unavailable")
+    direction = "LONG" if ctx.ema9 > ctx.ema21 else "SHORT"
     sign = 1.0 if direction == "LONG" else -1.0
-    move_atr = sign * (c - o) / ctx.atr
+    move_atr = sign * (c - ctx.last_close) / ctx.atr
     if move_atr < cfg.min_move_atr:
         return _reject("move_too_small", move_atr=round(move_atr, 3))
     if move_atr > cfg.max_move_atr:
@@ -248,10 +237,6 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
     if vol_ratio < need:
         return _reject("low_volume_pace", vol_ratio=round(vol_ratio, 3), need=round(need, 3))
     pace = vol_ratio / max(frac, 1e-9)
-    close_location = (c - l) / rng if direction == "LONG" else (h - c) / rng
-    body_ratio = sign * (c - o) / rng
-    if close_location < cfg.min_close_location or body_ratio < cfg.min_body_ratio:
-        return _reject("weak_candle", close_location=round(close_location, 3), body_ratio=round(body_ratio, 3))
     ref = ctx.ema21 if ctx.ema21 is not None else ctx.last_close
     pre_extension = sign * (o - ref) / ctx.atr
     if pre_extension > cfg.max_pre_extension_atr:
@@ -262,16 +247,12 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
     # or an old squeeze flag to qualify on weak participation. A single volume
     # anomaly is not enough: the move, body/close quality and pace gates above
     # must also pass, and the pathway-specific pace threshold applies here.
-    structure_ignition = structure_break and pace >= cfg.min_structure_volume_pace
-    # Keep the ignition reason unambiguous: when a fresh structure break
-    # already qualifies, do not also label the same candle as a squeeze release.
-    squeeze_ignition = (not structure_ignition and ctx.compression_age is not None and
+    squeeze_ignition = (ctx.compression_age is not None and
                          ctx.compression_age <= cfg.max_squeeze_age_candles and
                          pace >= cfg.min_squeeze_volume_pace)
-    if not (structure_ignition or squeeze_ignition or impulse):
+    if not (squeeze_ignition or impulse):
         return _reject("no_ignition_evidence")
 
-    mid = l + 0.5 * rng
     speed = move_atr / max(elapsed_ms / 60000.0, 1e-9)
     result = {
         "state": "LIVE_EXPLOSION", "strategy": "EXPLOSION", "direction": direction,
@@ -281,14 +262,12 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
         "atr": ctx.atr, "atr_pct": round(ctx.atr_pct, 4),
         "move_atr": round(move_atr, 3), "speed_atr_per_min": round(speed, 3),
         "volume_ratio": round(vol_ratio, 3), "volume_pace": round(pace, 3),
-        "close_location": round(close_location, 3), "body_ratio": round(body_ratio, 3),
         "pre_extension_atr": round(pre_extension, 3),
         "structure_break": bool(structure_break), "compression_recent": bool(ctx.compression_recent),
-        "structure_ignition": bool(structure_ignition), "squeeze_ignition": bool(squeeze_ignition),
+        "squeeze_ignition": bool(squeeze_ignition),
         "impulse": bool(impulse), "high": h, "low": l,
-        # Invalidation = 50% retracement of the impulse candle (thesis is dead below it).
-        "swing_low": mid if direction == "LONG" else None,
-        "swing_high": mid if direction == "SHORT" else None,
+        # Stop loss is ATR-based in the shared risk calculator, not candle-shape based.
+        "swing_low": None, "swing_high": None,
         "ema9": ctx.ema9, "ema21": ctx.ema21, "ema50": ctx.ema50,
     }
     result["score_result"] = score_explosion(result, ctx, cfg)
@@ -303,12 +282,8 @@ def score_explosion(res: Dict[str, Any], ctx: LiveContext, cfg: LiveConfig = Liv
          speed, "ATR moved per minute since candle open"),
         ("volume_pace", 2.0 if pace >= 3.0 else 1.5 if pace >= 2.2 else 1.0, 2.0,
          pace, "time-normalised volume vs average candle"),
-        ("structure_break", 1.5 if res["structure_break"] else 0.0, 1.5,
-         res["structure_break"], "price beyond prior 20-candle extreme"),
         ("compression_release", 1.0 if res["compression_recent"] else 0.0, 1.0,
          res["compression_recent"], "BB inside KC within last 6 candles"),
-        ("candle_quality", _quality(res["close_location"], res["body_ratio"]), 1.5,
-         res["close_location"], "close near extreme, body-dominant"),
         ("entry_cleanliness", 1.0 if move <= 1.5 else 0.6 if move <= 1.8 else 0.3, 1.0,
          move, "smaller move at trigger = earlier entry"),
         ("trend_alignment", _trend_points(ctx, d, res["trigger_price"]), 1.0,
@@ -329,7 +304,6 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
         return out
     elapsed_ms = now_ms - t
     frac = elapsed_ms / ctx.interval_ms
-    rng = h - l
     for session, info in ctx.orb.items():
         rh, rl = info["range_high"], info["range_low"]
         if not (info["session_start_utc_ms"] <= now_ms < info["session_end_utc_ms"]):
@@ -349,18 +323,11 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
                 continue
             sign = 1.0 if direction == "LONG" else -1.0
             ext = sign * (c - edge) / ctx.atr
-            if ext > cfg.orb_max_extension_atr or rng <= 0 or sign * (c - o) <= 0:
+            if ext > cfg.orb_max_extension_atr:
                 continue
             vol_ratio = v / ctx.avg_volume
             need = max(cfg.orb_min_volume_floor, cfg.orb_min_volume_pace * max(frac, 0.0))
             if vol_ratio < need:
-                continue
-            close_location = (c - l) / rng if direction == "LONG" else (h - c) / rng
-            body_ratio = sign * (c - o) / rng
-            opposing_wick = (h - max(o, c)) / rng if direction == "LONG" else (min(o, c) - l) / rng
-            if (close_location < cfg.orb_min_close_location or
-                    body_ratio < cfg.orb_min_body_ratio or
-                    opposing_wick > cfg.orb_max_opposing_wick_ratio):
                 continue
             res = {
                 "state": "LIVE_ORB", "strategy": "ORB_BREAKOUT", "direction": direction,
@@ -375,8 +342,7 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
                 "move_atr": round(sign * (c - o) / ctx.atr, 3),
                 "volume_ratio": round(vol_ratio, 3),
                 "volume_pace": round(vol_ratio / max(frac, 1e-9), 3),
-                "close_location": round(close_location, 3), "body_ratio": round(body_ratio, 3),
-                "held_seconds": round((now_ms - first) / 1000, 1),
+                        "held_seconds": round((now_ms - first) / 1000, 1),
                 "high": h, "low": l,
                 # Same invalidation as the closed-candle ORB: opposite edge of the range.
                 "swing_low": rl if direction == "LONG" else None,
@@ -398,8 +364,6 @@ def score_orb(res: Dict[str, Any], ctx: LiveContext, cfg: LiveConfig = LiveConfi
          pace, "time-normalised volume vs average candle"),
         ("range_quality", 1.0 if 0.30 <= width <= 1.60 else 0.5, 1.0,
          width, "opening-range width in ATR"),
-        ("candle_quality", _quality(res["close_location"], res["body_ratio"]), 1.5,
-         res["close_location"], "close near extreme, body-dominant"),
         ("impulse", 1.5 if move >= 1.0 else 1.0 if move >= 0.6 else 0.5 if move >= 0.3 else 0.0, 1.5,
          move, "ATR moved since candle open"),
         ("trend_alignment", _trend_points(ctx, d, res["trigger_price"]), 1.0,
@@ -486,6 +450,5 @@ class LiveTracker:
         explosion = evaluate_explosion(ctx, candle, now_ms, self.cfg)
         if explosion.get("state") == "LIVE_EXPLOSION":
             found.append(explosion)
-        found = [r for r in found if r["score_result"].total >= self.cfg.min_score]
         found.sort(key=lambda r: r["score_result"].total, reverse=True)
         return found
