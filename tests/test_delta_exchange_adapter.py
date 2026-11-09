@@ -195,6 +195,20 @@ def test_delta_liquidity_uses_explicit_usd_turnover_not_contract_volume():
     assert values["BTCUSDT"] == 1_250_000
     assert values["BTCUSD"] == 1_250_000
 
+def test_delta_liquidity_does_not_infer_usd_turnover_from_contract_volume():
+    from exchange.symbol_manager import SymbolManager
+
+    rows = [{
+        "market": "B-BTC_USDT", "pair": "B-BTC_USDT",
+        "symbol": "BTCUSD", "delta_symbol": "BTCUSD",
+        "contract_type": "perpetual_futures",
+        "timestamp": int(time.time()), "turnover_usd": 0,
+        "quote_volume": 0, "base_volume": 100,
+        "last_price": 65000,
+    }]
+    manager = SymbolManager(type("RestStub", (), {})())
+    assert manager._ticker_liquidity(rows) == {}
+
 
 
 @pytest.mark.asyncio
