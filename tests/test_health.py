@@ -9,10 +9,11 @@ async def test_health():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/health")
-        assert resp.status_code == 200
+        assert resp.status_code == 503
         data = resp.json()
-        assert data["ok"] is True
-        assert data["status"] == "healthy"
+        assert data["ok"] is False
+        assert data["status"] == "degraded"
+        assert "startup_incomplete" in data["reasons"]
 
 
 @pytest.mark.asyncio
@@ -167,8 +168,18 @@ async def test_production_health_accepts_configured_telegram_delivery(monkeypatc
     app.state.telegram = SimpleNamespace(bot=object(), admin_ids=[123456])
     app.state.rest = SimpleNamespace(get_candle_feed_status=lambda: {
         "B-BTC_USDT": {
-            "5m": {"status": "fresh", "observed_at_ms": now_ms},
-            "15m": {"status": "fresh", "observed_at_ms": now_ms},
+            "5m": {
+                "status": "fresh", "observed_at_ms": now_ms,
+                "candle_age_seconds": 10.0,
+                "last_completed_open_ms": now_ms - 310_000,
+                "last_completed_close_ms": now_ms - 10_000,
+            },
+            "15m": {
+                "status": "fresh", "observed_at_ms": now_ms,
+                "candle_age_seconds": 300.0,
+                "last_completed_open_ms": now_ms - 1_200_000,
+                "last_completed_close_ms": now_ms - 300_000,
+            },
         }
     })
     app.state.symbol_mgr = SimpleNamespace(

@@ -77,6 +77,15 @@ def _market_data_freshness(request: Request) -> dict:
     if settings.enable_momentum_engine:
         pairs.update(getattr(symbols, "momentum_symbols", []) or [])
     intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+    enabled_age_limits = []
+    if settings.enable_normal_engine:
+        enabled_age_limits.append(float(settings.normal_max_signal_age_seconds))
+    if settings.enable_momentum_engine:
+        enabled_age_limits.append(float(settings.max_signal_age_seconds))
+    readiness_entry_age_limit = (
+        min(enabled_age_limits) if enabled_age_limits
+        else float(settings.max_signal_age_seconds)
+    )
     feed = getter() or {}
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     expected = len(pairs) * len(intervals)
@@ -92,16 +101,35 @@ def _market_data_freshness(request: Request) -> dict:
             interval_seconds = parse_interval(interval).total_seconds()
             stale_after = max(interval_seconds * 3.0, interval_seconds + settings.max_signal_age_seconds)
             status = item.get("status", "missing") if isinstance(item, dict) else "missing"
+            candle_age = (
+                item.get("candle_age_seconds")
+                if isinstance(item, dict) else None
+            )
+            candle_age_limit = (
+                readiness_entry_age_limit
+                if interval == settings.candle_primary_tf
+                else interval_seconds + readiness_entry_age_limit
+            )
+            try:
+                effective_candle_age = (
+                    max(0.0, float(candle_age)) + max(0.0, age)
+                    if candle_age is not None and age is not None else None
+                )
+            except (TypeError, ValueError, OverflowError):
+                effective_candle_age = None
             healthy = (
                 isinstance(item, dict)
                 and status == "fresh"
                 and age is not None
                 and -60.0 <= age <= stale_after
+                and effective_candle_age is not None
+                and 0.0 <= effective_candle_age <= candle_age_limit
             )
             feed_details[pair][interval] = {
                 "status": status,
                 "observation_age_seconds": round(max(0.0, age), 1) if age is not None else None,
-                "candle_age_seconds": item.get("candle_age_seconds") if isinstance(item, dict) else None,
+                "candle_age_seconds": round(effective_candle_age, 1) if effective_candle_age is not None else None,
+                "candle_age_at_observation_seconds": candle_age,
                 "last_completed_open_ms": item.get("last_completed_open_ms") if isinstance(item, dict) else None,
                 "last_completed_close_ms": item.get("last_completed_close_ms") if isinstance(item, dict) else None,
                 "error": item.get("error") if isinstance(item, dict) else "no_observation",
@@ -156,11 +184,17 @@ async def health(request: Request):
         getattr(telegram, "bot", None) and getattr(telegram, "admin_ids", [])
     )
 
-    # In production, a process that has not completed lifespan startup is not ready.
-    if state is None and settings.is_production:
+    # Readiness must represent a started scanner in every environment.
+    # A live HTTP process before lifespan initialization is only liveness, not readiness.
+    if state is None:
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "status": "degraded", "reasons": ["startup_incomplete"]},
+            content={
+                "ok": False,
+                "status": "degraded",
+                "reasons": ["startup_incomplete"],
+                "liveness": "/ping",
+            },
         )
 
     scan_freshness, scan_cycle_stale = _scan_freshness(state or {}, request)

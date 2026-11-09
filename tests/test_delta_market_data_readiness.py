@@ -216,7 +216,12 @@ async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_
     now_ms = int(now.timestamp() * 1000)
     feed = {
         pair: {
-            tf: {"status": "fresh", "observed_at_ms": now_ms}
+            tf: {
+                "status": "fresh",
+                "observed_at_ms": now_ms,
+                "candle_age_seconds": 30.0 if tf == "5m" else 600.0,
+                "last_completed_close_ms": now_ms - (30_000 if tf == "5m" else 600_000),
+            }
             for tf in ("5m", "15m")
         }
         for pair in ("B-BTC_USDT", "B-ETH_USDT")
@@ -441,3 +446,131 @@ async def test_websocket_resubscribes_when_active_symbol_universe_changes():
     # Repeating the same active universe does not churn the socket.
     stream._connection = None
     assert await stream.update_symbols(["B-ETH_USDT", "B-BTC_USDT"]) is False
+
+
+@pytest.mark.asyncio
+async def test_primary_candle_fetch_preserves_widest_enabled_engine_age_window(monkeypatch):
+    from exchange.delta_rest import DeltaExchangeRest
+    from config import settings
+
+    now_ms = 1_800_000_090_000
+    monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    monkeypatch.setattr(settings, "max_signal_age_seconds", 120)
+    monkeypatch.setattr(settings, "candle_primary_tf", "5m")
+    rest = DeltaExchangeRest()
+    rest._canonical_to_delta["B-TEST_USDT"] = "TESTUSD"
+
+    # Last 5m candle closed 90 seconds ago: keep it available to Momentum's
+    # 120s window; Normal's 60s scanner gate and /health readiness reject it.
+    close_ms = now_ms - 90_000
+    open_ms = close_ms - 300_000
+    rows = [{"time": open_ms // 1000, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}]
+    async def get(url, params=None):
+        return {"success": True, "result": rows}
+    rest._get = get
+    result = await rest.get_candles("B-TEST_USDT", "5m", limit=1)
+    assert len(result) == 1
+    status = rest.get_candle_feed_status()["B-TEST_USDT"]["5m"]
+    assert status["status"] == "fresh"
+    assert status["candle_age_seconds"] == 90.0
+
+
+@pytest.mark.asyncio
+async def test_15m_context_allows_one_interval_plus_entry_age(monkeypatch):
+    from exchange.delta_rest import DeltaExchangeRest
+    from config import settings
+
+    now_ms = 1_800_000_840_000
+    monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    monkeypatch.setattr(settings, "max_signal_age_seconds", 120)
+    rest = DeltaExchangeRest()
+    rest._canonical_to_delta["B-TEST_USDT"] = "TESTUSD"
+
+    # Context candle closed 14 minutes ago: still a valid as-of 15m context.
+    close_ms = now_ms - 14 * 60_000
+    open_ms = close_ms - 900_000
+    rows = [{"time": open_ms // 1000, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}]
+    async def get(url, params=None):
+        return {"success": True, "result": rows}
+    rest._get = get
+    result = await rest.get_candles("B-TEST_USDT", "15m", limit=1)
+    assert len(result) == 1
+    status = rest.get_candle_feed_status()["B-TEST_USDT"]["15m"]
+    assert status["status"] == "fresh"
+
+
+@pytest.mark.asyncio
+async def test_health_rejects_primary_candle_too_old_for_normal_but_keeps_momentum_window(monkeypatch):
+    from app.health import health
+    from config import settings
+
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_symbol_limit", 1)
+    monkeypatch.setattr(settings, "momentum_symbol_limit", 1)
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    feed = {"B-BTC_USDT": {
+        "5m": {"status": "fresh", "observed_at_ms": now_ms, "candle_age_seconds": 90.0},
+        "15m": {"status": "fresh", "observed_at_ms": now_ms, "candle_age_seconds": 600.0},
+    }}
+    state = {
+        "database": "postgres", "normal_engine": "running", "momentum_engine": "running",
+        "valid_symbols_normal": 1, "valid_symbols_momentum": 1,
+        "scan_task_expected": True, "scan_task_status": "running",
+        "retest_task_status": "running", "telegram_delivery_task_expected": True,
+        "telegram_delivery_task_status": "running",
+        "last_scan_normal": now.isoformat(), "last_scan_momentum": now.isoformat(),
+    }
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        bot_state=state,
+        telegram=SimpleNamespace(bot=object(), admin_ids=[123]),
+        rest=SimpleNamespace(get_candle_feed_status=lambda: feed),
+        symbol_mgr=SimpleNamespace(normal_symbols=["B-BTC_USDT"], momentum_symbols=["B-BTC_USDT"]),
+        websocket=SimpleNamespace(status="reconnecting", reconnect_count=1, symbol_feed_age_seconds={}),
+    )))
+    response = await health(request)
+    assert response.status_code == 503
+    body = json.loads(response.body)
+    assert "per_symbol_candle_data_not_ready" in body["reasons"]
+    assert body["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] == 90.0
+
+
+@pytest.mark.asyncio
+async def test_health_increases_candle_age_since_last_rest_observation(monkeypatch):
+    from app.health import _market_data_freshness
+    from config import settings
+
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", False)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    feed = {"B-BTC_USDT": {
+        "5m": {
+            "status": "fresh", "observed_at_ms": now_ms - 55_000,
+            "candle_age_seconds": 10.0,
+            "last_completed_open_ms": now_ms - 315_000,
+            "last_completed_close_ms": now_ms - 15_000,
+        },
+        "15m": {
+            "status": "fresh", "observed_at_ms": now_ms - 55_000,
+            "candle_age_seconds": 300.0,
+            "last_completed_open_ms": now_ms - 1_200_000,
+            "last_completed_close_ms": now_ms - 300_000,
+        },
+    }}
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        rest=SimpleNamespace(get_candle_feed_status=lambda: feed),
+        symbol_mgr=SimpleNamespace(normal_symbols=["B-BTC_USDT"], momentum_symbols=[]),
+    )))
+    result = _market_data_freshness(request)
+    assert result["ready"] is False
+    assert result["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] >= 65.0

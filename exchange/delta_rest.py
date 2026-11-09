@@ -501,17 +501,30 @@ class DeltaExchangeRest:
                 continue
         dedup = {c["time"]: c for c in normalized}
         candles = [dedup[k] for k in sorted(dedup)][-limit:]
-        if candles:
+        if candles and track:
             age = (now_ms - (candles[-1]["time"] + duration_ms)) / 1000
-            stale_limit = max(float(settings.max_signal_age_seconds), duration_ms * 2 / 1000)
+            # Preserve each engine's own entry-age policy: the REST adapter
+            # returns data within the widest enabled engine budget. Normal's
+            # stricter budget is enforced by its scanner and by /health readiness,
+            # not by truncating Momentum's independent 120-second window.
+            enabled_age_limits = []
+            if settings.enable_normal_engine:
+                enabled_age_limits.append(float(settings.normal_max_signal_age_seconds))
+            if settings.enable_momentum_engine:
+                enabled_age_limits.append(float(settings.max_signal_age_seconds))
+            entry_age_limit = max(enabled_age_limits) if enabled_age_limits else float(settings.max_signal_age_seconds)
+            stale_limit = (
+                entry_age_limit
+                if interval == settings.candle_primary_tf
+                else duration_ms / 1000.0 + entry_age_limit
+            )
             if age > stale_limit:
-                if track:
-                    self._record_candle_feed_observation(
-                        pair, interval, False, error="stale_completed_candles"
-                    )
+                self._record_candle_feed_observation(
+                    pair, interval, False, error="stale_completed_candles"
+                )
                 logger.warning(f"DELTA_CANDLES_STALE {pair} {interval} age={age:.1f}s rejected")
                 candles = []
-            elif track:
+            else:
                 self._record_candle_feed_observation(
                     pair, interval, True, candles=candles
                 )
