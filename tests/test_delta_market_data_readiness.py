@@ -198,3 +198,142 @@ async def test_telegram_outbox_duplicate_enqueue_and_delivery_are_idempotent(tmp
     finally:
         database_db.engine, database_db.SessionLocal = old_engine, old_factory
         await test_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_15m_data(monkeypatch):
+    from app.health import health
+    from config import settings
+
+    monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_symbol_limit", 1)
+    monkeypatch.setattr(settings, "momentum_symbol_limit", 2)
+
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
+    feed = {
+        pair: {
+            tf: {"status": "fresh", "observed_at_ms": now_ms}
+            for tf in ("5m", "15m")
+        }
+        for pair in ("B-BTC_USDT", "B-ETH_USDT")
+    }
+    state = {
+        "database": "postgres",
+        "normal_engine": "running",
+        "momentum_engine": "running",
+        "valid_symbols_normal": 1,
+        "valid_symbols_momentum": 2,
+        "scan_task_expected": True,
+        "scan_task_status": "running",
+        "retest_task_status": "running",
+        "telegram_delivery_task_expected": True,
+        "telegram_delivery_task_status": "running",
+        "last_scan_normal": now.isoformat(),
+        "last_scan_momentum": now.isoformat(),
+    }
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        bot_state=state,
+        telegram=SimpleNamespace(bot=object(), admin_ids=[123]),
+        rest=SimpleNamespace(get_candle_feed_status=lambda: feed),
+        symbol_mgr=SimpleNamespace(
+            normal_symbols=["B-BTC_USDT"],
+            momentum_symbols=["B-BTC_USDT", "B-ETH_USDT"],
+        ),
+        websocket=SimpleNamespace(
+            status="reconnecting", reconnect_count=2, symbol_feed_age_seconds={}
+        ),
+        start_time=now,
+    )))
+    response = await health(request)
+    assert response["ok"] is True
+    assert response["market_data_freshness"]["expected"] == 4
+    assert response["market_data_freshness"]["fresh"] == 4
+    # WebSocket loss is diagnostic only because REST closed-candle data is authoritative.
+    assert response["websocket"]["status"] == "reconnecting"
+
+
+@pytest.mark.asyncio
+async def test_delta_rest_request_failure_marks_symbol_timeframe_stale(monkeypatch):
+    from exchange.delta_rest import DeltaExchangeRest
+
+    now_ms = (int(time.time() * 1000) // 300_000) * 300_000 + 5_000
+    monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
+    client = DeltaExchangeRest()
+    client._canonical_to_delta["B-BTC_USDT"] = "BTCUSD"
+
+    async def fail_request(url, params=None):
+        raise RuntimeError("temporary exchange failure")
+
+    client._get = fail_request
+    with pytest.raises(RuntimeError, match="temporary exchange failure"):
+        await client.get_candles("B-BTC_USDT", "5m", limit=100)
+    status = client.get_candle_feed_status()["B-BTC_USDT"]["5m"]
+    assert status["status"] == "stale"
+    assert status["error"] == "rest_request_failed:RuntimeError"
+
+
+@pytest.mark.asyncio
+async def test_telegram_outbox_retries_a_transient_send_failure(tmp_path):
+    from sqlalchemy import select, update
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from database import db as database_db
+    from database.db import Base
+    from database import models  # noqa: F401
+    from database.models import SignalDeliveryRecord
+    from database.repositories import enqueue_signal_deliveries
+    from tgbot.delivery_worker import TelegramDeliveryWorker
+
+    test_engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'outbox_retry.db'}")
+    old_engine, old_factory = database_db.engine, database_db.SessionLocal
+    database_db.engine = test_engine
+    database_db.SessionLocal = async_sessionmaker(
+        test_engine, class_=AsyncSession, expire_on_commit=False
+    )
+    try:
+        async with test_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        signal = {
+            "pair": "B-ETH_USDT", "engine": "momentum", "direction": "SHORT",
+            "candle_time_ms": 1_800_000_300_000, "signal_age_seconds": 0,
+            "price": 200.0,
+        }
+        assert await enqueue_signal_deliveries(signal, [456]) == 1
+
+        class FlakyTelegram:
+            bot = object()
+            admin_ids = [456]
+
+            def __init__(self):
+                self.calls = 0
+
+            async def send_signal_to_chat(self, payload, chat_id):
+                self.calls += 1
+                if self.calls == 1:
+                    raise RuntimeError("temporary Telegram timeout")
+
+        telegram = FlakyTelegram()
+        worker = TelegramDeliveryWorker(telegram)
+        assert await worker.run_once() == 0
+        async with database_db.SessionLocal() as session:
+            row = (await session.execute(select(SignalDeliveryRecord))).scalar_one()
+            assert row.status == "retry"
+            assert row.attempts == 1
+            await session.execute(
+                update(SignalDeliveryRecord).where(
+                    SignalDeliveryRecord.delivery_key == row.delivery_key
+                ).values(next_attempt_at=datetime.now(timezone.utc).replace(tzinfo=None))
+            )
+            await session.commit()
+
+        assert await worker.run_once() == 1
+        assert telegram.calls == 2
+        async with database_db.SessionLocal() as session:
+            row = (await session.execute(select(SignalDeliveryRecord))).scalar_one()
+            assert row.status == "delivered"
+            assert row.attempts == 2
+    finally:
+        database_db.engine, database_db.SessionLocal = old_engine, old_factory
+        await test_engine.dispose()
