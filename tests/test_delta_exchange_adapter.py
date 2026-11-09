@@ -229,10 +229,11 @@ async def test_symbol_manager_accepts_delta_usd_perpetual_under_internal_strateg
             }]
 
         async def get_ticker(self):
+            # Missing turnover must not rotate a fixed, preselected allowlist.
             return [{
                 "market": "B-BTC_USDT", "pair": "B-BTC_USDT",
                 "symbol": "BTCUSD", "timestamp": int(time.time()),
-                "quote_volume": 1_500_000, "turnover_usd": 1_500_000,
+                "quote_volume": 0, "turnover_usd": 0,
             }]
 
     manager = SymbolManager(RestStub())
