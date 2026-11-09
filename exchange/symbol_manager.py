@@ -376,108 +376,43 @@ class SymbolManager:
                 existing["reason"] = reason
 
     def _select_active_symbols(self) -> None:
-        """Keep static order while enforcing per-engine minimum 24h turnover."""
+        """Apply the fixed allowlists without daily liquidity-based rotation.
+
+        The YAML files define membership and order. Live Delta product validation
+        still prevents scanning unavailable contracts, and stale-feed quarantine
+        remains a temporary data-quality safety mechanism. 24h turnover is
+        telemetry only; it cannot add, replace, reorder, or remove allowlist
+        members.
+        """
         excluded = set(self._quarantined)
 
-        def select(rank: List[str], limit: int, minimum: float, label: str) -> List[str]:
-            chosen: List[str] = []
-            for pair in rank:
-                if pair in excluded:
-                    continue
-                turnover = self.liquidity.get(pair, 0.0)
-                if turnover < minimum:
-                    continue
-                chosen.append(pair)
-                if len(chosen) >= max(1, int(limit)):
-                    break
+        def select(rank: List[str], label: str) -> List[str]:
+            chosen = [pair for pair in rank if pair not in excluded]
             logger.info(
-                f"{label.upper()}_LIQUIDITY_FILTER selected={len(chosen)}/{limit} "
-                f"minimum_24h_turnover_usdt={minimum:.0f}"
+                f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
+                f"active={len(chosen)} quarantined={len(rank) - len(chosen)}"
             )
             return chosen
 
-        self.normal_symbols = select(
-            self._ranked_normal, settings.normal_symbol_limit,
-            settings.normal_min_24h_turnover_usdt, "Normal",
-        )
-        self.momentum_symbols = select(
-            self._ranked_momentum, settings.momentum_symbol_limit,
-            settings.momentum_min_24h_turnover_usdt, "Momentum",
-        )
+        self.normal_symbols = select(self._ranked_normal, "Normal")
+        self.momentum_symbols = select(self._ranked_momentum, "Momentum")
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
-
-        # Preserve per-engine exclusion details. A contract can fail the Normal
-        # floor but still be eligible for Momentum/ORB, so a single global
-        # LOW_LIQUIDITY status would be misleading.
-        for pair in set(self._ranked_normal) | set(self._ranked_momentum):
-            if pair in excluded:
-                continue
-            turnover = self.liquidity.get(pair, 0.0)
-            normal_in = pair in self._ranked_normal
-            momentum_in = pair in self._ranked_momentum
-            normal_status = (
-                "NOT_IN_UNIVERSE" if not normal_in else
-                "ELIGIBLE" if turnover >= settings.normal_min_24h_turnover_usdt else
-                "LIQUIDITY_UNKNOWN" if turnover <= 0 else "LOW_LIQUIDITY"
-            )
-            momentum_status = (
-                "NOT_IN_UNIVERSE" if not momentum_in else
-                "ELIGIBLE" if turnover >= settings.momentum_min_24h_turnover_usdt else
-                "LIQUIDITY_UNKNOWN" if turnover <= 0 else "LOW_LIQUIDITY"
-            )
-            excluded_statuses = [
-                value for value in (normal_status, momentum_status)
-                if value in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN")
-            ]
-            key = self._norm(pair)
-            if excluded_statuses:
-                eligible_somewhere = "ELIGIBLE" in (normal_status, momentum_status)
-                if eligible_somewhere:
-                    overall = "PARTIAL_LIQUIDITY"
-                elif "LIQUIDITY_UNKNOWN" in excluded_statuses:
-                    overall = "LIQUIDITY_UNKNOWN"
-                else:
-                    overall = "LOW_LIQUIDITY"
-                reasons = []
-                if normal_status in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN"):
-                    reasons.append(
-                        f"Normal: {turnover:.0f} USDT estimated turnover below "
-                        f"{settings.normal_min_24h_turnover_usdt:.0f}"
-                    )
-                if momentum_status in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN"):
-                    reasons.append(
-                        f"Momentum/ORB: {turnover:.0f} USDT estimated turnover below "
-                        f"{settings.momentum_min_24h_turnover_usdt:.0f}"
-                    )
-                reason = "; ".join(reasons)
-                self.whitelist_diagnostics[key] = {
-                    "configured_symbol": key,
-                    "status": overall,
-                    "reason": reason,
-                    "normal_status": normal_status,
-                    "momentum_status": momentum_status,
-                    "estimated_24h_turnover_usdt": turnover,
-                    "normal_min_24h_turnover_usdt": settings.normal_min_24h_turnover_usdt,
-                    "momentum_min_24h_turnover_usdt": settings.momentum_min_24h_turnover_usdt,
-                }
-                self.skipped_reasons[pair] = reason
-            else:
-                self.whitelist_diagnostics.pop(key, None)
-                self.skipped_reasons.pop(pair, None)
 
         for pair, item in self._quarantined.items():
             retry_at = datetime.fromtimestamp(item["retry_at"], tz=timezone.utc).isoformat()
-            self.skipped_reasons[pair] = f"temporarily quarantined until {retry_at}: {item['reason']}"
+            self.skipped_reasons[pair] = (
+                f"temporarily quarantined until {retry_at}: {item['reason']}"
+            )
             logger.info(
                 f"MARKET_EXCLUDED {pair} normal={'yes' if pair in self._ranked_normal else 'no'} "
                 f"momentum={'yes' if pair in self._ranked_momentum else 'no'} retry_at={retry_at}"
             )
+
         for pair in self.valid_pairs - selected - excluded:
-            self.skipped_reasons.setdefault(pair, "outside configured engine universe limit")
+            self.skipped_reasons.setdefault(pair, "outside fixed configured strategy allowlists")
         logger.info(
-            f"ACTIVE_UNIVERSE normal={len(self.normal_symbols)}/{settings.normal_symbol_limit} "
-            f"momentum={len(self.momentum_symbols)}/{settings.momentum_symbol_limit} "
-            f"quarantined={len(self._quarantined)}"
+            f"ACTIVE_FIXED_UNIVERSE normal={len(self.normal_symbols)} "
+            f"momentum={len(self.momentum_symbols)} quarantined={len(self._quarantined)}"
         )
 
     async def refresh_universes(self) -> None:
