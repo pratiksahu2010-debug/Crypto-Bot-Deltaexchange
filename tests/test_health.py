@@ -137,19 +137,46 @@ async def test_production_health_degrades_when_telegram_delivery_is_unavailable(
 @pytest.mark.asyncio
 async def test_production_health_accepts_configured_telegram_delivery(monkeypatch):
     from types import SimpleNamespace
+    from datetime import datetime, timezone
     from config import settings
 
     monkeypatch.setattr(type(settings), "is_production", property(lambda self: True))
+    monkeypatch.setattr(settings, "normal_symbol_limit", 1)
+    monkeypatch.setattr(settings, "momentum_symbol_limit", 1)
     old_state = getattr(app.state, "bot_state", None)
     old_telegram = getattr(app.state, "telegram", None)
+    old_rest = getattr(app.state, "rest", None)
+    old_symbols = getattr(app.state, "symbol_mgr", None)
+    old_websocket = getattr(app.state, "websocket", None)
+    now = datetime.now(timezone.utc)
+    now_ms = int(now.timestamp() * 1000)
     app.state.bot_state = {
         "database": "postgres",
         "normal_engine": "running",
         "momentum_engine": "running",
-        "valid_symbols_normal": 40,
-        "valid_symbols_momentum": 80,
+        "valid_symbols_normal": 1,
+        "valid_symbols_momentum": 1,
+        "scan_task_expected": True,
+        "scan_task_status": "running",
+        "retest_task_status": "running",
+        "telegram_delivery_task_expected": True,
+        "telegram_delivery_task_status": "running",
+        "last_scan_normal": now.isoformat(),
+        "last_scan_momentum": now.isoformat(),
     }
     app.state.telegram = SimpleNamespace(bot=object(), admin_ids=[123456])
+    app.state.rest = SimpleNamespace(get_candle_feed_status=lambda: {
+        "B-BTC_USDT": {
+            "5m": {"status": "fresh", "observed_at_ms": now_ms},
+            "15m": {"status": "fresh", "observed_at_ms": now_ms},
+        }
+    })
+    app.state.symbol_mgr = SimpleNamespace(
+        normal_symbols=["B-BTC_USDT"], momentum_symbols=["B-BTC_USDT"]
+    )
+    app.state.websocket = SimpleNamespace(
+        status="connected", reconnect_count=0, symbol_feed_age_seconds={}
+    )
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -166,6 +193,12 @@ async def test_production_health_accepts_configured_telegram_delivery(monkeypatc
                 delattr(app.state, "telegram")
         else:
             app.state.telegram = old_telegram
+        for attr, previous in (("rest", old_rest), ("symbol_mgr", old_symbols), ("websocket", old_websocket)):
+            if previous is None:
+                if hasattr(app.state, attr):
+                    delattr(app.state, attr)
+            else:
+                setattr(app.state, attr, previous)
 
 
 
@@ -334,9 +367,12 @@ async def test_health_allows_scan_startup_grace_before_first_cycle(monkeypatch):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             resp = await client.get("/health")
-            assert resp.status_code == 200
-            assert resp.json()["scan_freshness"]["normal"]["status"] == "waiting"
-            assert resp.json()["scan_freshness"]["momentum"]["status"] == "waiting"
+            assert resp.status_code == 503
+            data = resp.json()
+            assert data["scan_freshness"]["normal"]["status"] == "waiting"
+            assert data["scan_freshness"]["momentum"]["status"] == "waiting"
+            assert "scan_cycle_not_fresh_or_not_started" in data["reasons"]
+            assert "per_symbol_candle_data_not_ready" in data["reasons"]
     finally:
         if old_state is None:
             delattr(app.state, "bot_state")

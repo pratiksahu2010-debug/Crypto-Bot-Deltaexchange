@@ -35,8 +35,8 @@ def test_outbox_is_per_recipient_claimable_and_idempotent(tmp_path, monkeypatch)
                 "price": 65000,
             }
             assert await enqueue_signal_deliveries(signal, [111, 222, 111]) == 2
-            # Re-enqueueing the same candle/recipient is idempotent.
-            assert await enqueue_signal_deliveries(signal, [111, 222]) == 0
+            # Re-enqueueing existing pending recipient items is accepted but not duplicated.
+            assert await enqueue_signal_deliveries(signal, [111, 222]) == 2
             batch = await claim_due_signal_deliveries(limit=10)
             assert len(batch) == 2
             assert {item["chat_id"] for item in batch} == {111, 222}

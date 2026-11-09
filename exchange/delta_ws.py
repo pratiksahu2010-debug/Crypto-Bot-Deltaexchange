@@ -28,7 +28,13 @@ class DeltaFuturesStream:
         self._connected_event = asyncio.Event()
         self._channels = {}
         self._reconnect_count = 0
+        self._reconnect_attempts = 0
         self._last_event_ms = None
+        self._last_heartbeat_ms = None
+        self._subscription_error = None
+        self._subscribed_channels = set()
+        # Last accepted forming-candle update per canonical symbol and timeframe.
+        self._last_symbol_update_ms = {}
         self.on_candle_callback = None
 
     def set_candle_callback(self, callback):
@@ -45,6 +51,20 @@ class DeltaFuturesStream:
     @property
     def reconnect_count(self):
         return self._reconnect_count
+
+    @property
+    def symbol_feed_age_seconds(self):
+        now_ms = int(time.time() * 1000)
+        return {
+            pair: {tf: round(max(0.0, (now_ms - stamp) / 1000.0), 1)
+                   for tf, stamp in values.items()}
+            for pair, values in self._last_symbol_update_ms.items()
+        }
+
+    @staticmethod
+    def reconnect_delay(attempt: int) -> float:
+        """Exponential reconnect backoff, capped to keep recovery bounded."""
+        return float(min(30, 2 ** max(0, min(int(attempt) - 1, 5))))
 
     @property
     def price_feed_age_seconds(self):
@@ -87,6 +107,45 @@ class DeltaFuturesStream:
             logger.warning("DELTA_WS_CONNECT_TIMEOUT REST_fallback=true reconnect_loop=active")
             return False
 
+    async def update_symbols(self, pairs: Iterable[str]) -> bool:
+        """Refresh candle subscriptions when quarantine/recovery changes the universe.
+
+        Reconnect rather than layering unsubscribe/subscribe state onto an old
+        socket; the new connection is ready only after Delta acknowledges the
+        complete replacement subscription set.
+        """
+        symbols = []
+        for pair in sorted(set(pairs)):
+            try:
+                symbols.append(self.rest.delta_symbol_for_pair(pair))
+            except KeyError:
+                logger.warning(
+                    "DELTA_WS_SYMBOL_SKIPPED pair=%s reason=no_live_product_mapping", pair
+                )
+        if not symbols:
+            return False
+        intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+        updated = {
+            f"candlestick_{interval}": symbols for interval in intervals
+        }
+        if updated == self._channels:
+            return False
+        self._channels = updated
+        self._connected = False
+        self._connected_event.clear()
+        self._reconnect_attempts = 0
+        connection = self._connection
+        if connection is not None:
+            try:
+                await connection.close(code=1000, reason="active_universe_updated")
+            except Exception as exc:
+                logger.warning("DELTA_WS_UNIVERSE_RECONNECT_CLOSE_FAILED error=%s", exc)
+        logger.info(
+            "DELTA_WS_UNIVERSE_UPDATED symbols=%s channels=%s",
+            len(symbols), ",".join(updated),
+        )
+        return True
+
     async def _run(self):
         first_attempt = True
         while self._running:
@@ -100,11 +159,13 @@ class DeltaFuturesStream:
                     max_size=2**20,
                 ) as connection:
                     self._connection = connection
-                    self._connected = True
-                    self._connected_event.set()
-                    if not first_attempt:
-                        self._reconnect_count += 1
-                    first_attempt = False
+                    self._connected = False
+                    self._connected_event.clear()
+                    self._last_heartbeat_ms = None
+                    self._subscription_error = None
+                    self._subscribed_channels = set()
+                    connection_started_ms = int(time.time() * 1000)
+                    connection_counted = False
                     await connection.send(json.dumps({"type": "enable_heartbeat"}))
                     channels = [
                         {"name": name, "symbols": symbols}
@@ -114,16 +175,68 @@ class DeltaFuturesStream:
                         "type": "subscribe",
                         "payload": {"channels": channels},
                     }))
+                    # The server must acknowledge each requested channel/symbol
+                    # before this connection is considered subscribed/ready.
                     logger.info(
-                        f"DELTA_WS_CONNECTED symbols={len(next(iter(self._channels.values()), []))} "
+                        f"DELTA_WS_SUBSCRIBE_SENT symbols={len(next(iter(self._channels.values()), []))} "
                         f"channels={','.join(self._channels)}"
                     )
-                    async for raw in connection:
+                    while self._running:
+                        heartbeat_reference_ms = (
+                            self._last_heartbeat_ms
+                            if self._last_heartbeat_ms is not None
+                            else connection_started_ms
+                        )
+                        current_ms = int(time.time() * 1000)
+                        heartbeat_age_seconds = (
+                            current_ms - heartbeat_reference_ms
+                        ) / 1000.0
+                        remaining_heartbeat_seconds = max(
+                            0.0, 35.0 - heartbeat_age_seconds
+                        )
+                        if self._connected:
+                            receive_timeout = remaining_heartbeat_seconds
+                        else:
+                            subscription_age_seconds = (
+                                current_ms - connection_started_ms
+                            ) / 1000.0
+                            remaining_subscription_seconds = max(
+                                0.0, 10.0 - subscription_age_seconds
+                            )
+                            receive_timeout = min(
+                                remaining_heartbeat_seconds,
+                                remaining_subscription_seconds,
+                            )
+                        try:
+                            raw = await asyncio.wait_for(
+                                connection.recv(), timeout=receive_timeout
+                            )
+                        except asyncio.TimeoutError as exc:
+                            raise ConnectionError("heartbeat_timeout_35s") from exc
                         try:
                             message = json.loads(raw)
                         except (TypeError, ValueError):
                             continue
                         self._handle_message(message)
+                        if self._subscription_error:
+                            raise ConnectionError(self._subscription_error)
+                        if self._connected and not connection_counted:
+                            if not first_attempt:
+                                self._reconnect_count += 1
+                            first_attempt = False
+                            connection_counted = True
+                            logger.info(
+                                f"DELTA_WS_CONNECTED symbols={len(next(iter(self._channels.values()), []))} "
+                                f"channels={','.join(self._channels)}"
+                            )
+                        heartbeat_ms = self._last_heartbeat_ms
+                        heartbeat_age_ms = (
+                            int(time.time() * 1000) - heartbeat_ms
+                            if heartbeat_ms is not None
+                            else int(time.time() * 1000) - connection_started_ms
+                        )
+                        if heartbeat_age_ms > 35_000:
+                            raise ConnectionError("heartbeat_timeout_35s")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -134,7 +247,13 @@ class DeltaFuturesStream:
                 self._connected_event.clear()
                 self._connection = None
             if self._running:
-                await asyncio.sleep(min(30, 1 + self._reconnect_count * 2))
+                self._reconnect_attempts += 1
+                delay = self.reconnect_delay(self._reconnect_attempts)
+                logger.warning(
+                    "DELTA_WS_RECONNECT_SCHEDULED attempt=%s delay_seconds=%.0f",
+                    self._reconnect_attempts, delay,
+                )
+                await asyncio.sleep(delay)
 
     def _handle_message(self, message):
         if not isinstance(message, dict):
@@ -142,6 +261,35 @@ class DeltaFuturesStream:
         kind = str(message.get("type") or "")
         if kind == "heartbeat":
             self._last_event_ms = int(time.time() * 1000)
+            self._last_heartbeat_ms = self._last_event_ms
+            return
+        if kind == "subscriptions":
+            acknowledged = {}
+            errors = []
+            for channel in message.get("channels", []) or []:
+                if not isinstance(channel, dict):
+                    continue
+                name = str(channel.get("name") or "")
+                if channel.get("error"):
+                    errors.append(f"{name}:{channel.get('error')}")
+                    continue
+                acknowledged[name] = set(str(x).upper() for x in channel.get("symbols", []) or [])
+            missing = []
+            for name, requested in self._channels.items():
+                received = acknowledged.get(name, set())
+                absent = set(str(x).upper() for x in requested) - received
+                if absent:
+                    missing.append(f"{name}:{','.join(sorted(absent))}")
+            if errors or missing:
+                self._subscription_error = (
+                    "subscription_ack_incomplete errors="
+                    + ",".join(errors) + " missing=" + ",".join(missing)
+                )
+                logger.error("DELTA_WS_SUBSCRIPTION_REJECTED %s", self._subscription_error)
+                return
+            self._subscribed_channels = set(acknowledged)
+            self._connected = True
+            self._connected_event.set()
             return
         if kind.startswith("candlestick_"):
             self._handle_candlestick(message)
@@ -193,6 +341,9 @@ class DeltaFuturesStream:
                 if buffered and candle_open_ms < int(buffered[-1].get("time", 0)):
                     return
             self.candles.on_candle(pair, interval, candle)
+            self._last_symbol_update_ms.setdefault(pair, {})[interval] = now_ms
+            # A successful market update resets the consecutive reconnect backoff.
+            self._reconnect_attempts = 0
             # A traded-price candle close is LTP. Do not substitute mark_price.
             self.rest.set_ws_prices(
                 {raw_symbol: {"last_price": candle["close"], "timestamp": raw_ts}},

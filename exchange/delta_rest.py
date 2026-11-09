@@ -47,6 +47,9 @@ class DeltaExchangeRest:
         self._ws_last_update_ms: Optional[int] = None
         self._last_ws_price_prune_mono = 0.0
         self._stale_market_timeframes: Dict[str, Dict[str, int]] = {}
+        # Last REST observation for each required symbol/timeframe; this is
+        # the authoritative feed-freshness source used by readiness checks.
+        self._candle_feed_status: Dict[str, Dict[str, dict]] = {}
         self._canonical_to_delta: Dict[str, str] = {}
         self._delta_to_canonical: Dict[str, str] = {}
         self._product_metadata: Dict[str, dict] = {}
@@ -362,12 +365,47 @@ class DeltaExchangeRest:
     def get_stale_market_timeframes(self):
         return {pair: dict(values) for pair, values in self._stale_market_timeframes.items()}
 
-    def _record_candle_feed_observation(self, pair, interval, available):
-        if available:
+    def get_candle_feed_status(self):
+        """Return a defensive snapshot of per-symbol REST candle freshness."""
+        return {
+            pair: {interval: dict(status) for interval, status in values.items()}
+            for pair, values in self._candle_feed_status.items()
+        }
+
+    def _record_candle_feed_observation(
+        self, pair, interval, available, candles=None, error=None
+    ):
+        now_ms = int(time.time() * 1000)
+        previous = self._candle_feed_status.setdefault(pair, {}).get(interval, {})
+        if available and candles:
+            latest = candles[-1]
+            interval_ms = int({
+                "1m": 60_000, "3m": 180_000, "5m": 300_000,
+                "15m": 900_000, "30m": 1_800_000, "1h": 3_600_000,
+                "2h": 7_200_000, "4h": 14_400_000, "6h": 21_600_000,
+                "12h": 43_200_000, "1d": 86_400_000, "1w": 604_800_000,
+            }[interval])
+            candle_open_ms = int(latest["time"])
+            self._candle_feed_status[pair][interval] = {
+                "status": "fresh",
+                "observed_at_ms": now_ms,
+                "last_completed_open_ms": candle_open_ms,
+                "last_completed_close_ms": candle_open_ms + interval_ms,
+                "candle_age_seconds": round(
+                    max(0.0, (now_ms - candle_open_ms - interval_ms) / 1000.0), 1
+                ),
+                "error": None,
+            }
             self._stale_market_timeframes.get(pair, {}).pop(interval, None)
         else:
             values = self._stale_market_timeframes.setdefault(pair, {})
             values[interval] = values.get(interval, 0) + 1
+            self._candle_feed_status[pair][interval] = {
+                **previous,
+                "status": "stale",
+                "observed_at_ms": now_ms,
+                "error": str(error or "no_fresh_completed_candles"),
+            }
 
     def _prune_candle_cache(self):
         if len(self._candle_cache) > 1000:
@@ -418,11 +456,21 @@ class DeltaExchangeRest:
             "resolution": interval, "symbol": symbol,
             "start": int(start_ms / 1000), "end": int(end_ms / 1000),
         }
-        payload = await self._get(f"{self.base}/v2/history/candles", params=params)
+        try:
+            payload = await self._get(f"{self.base}/v2/history/candles", params=params)
+        except Exception as exc:
+            if track:
+                self._record_candle_feed_observation(
+                    pair, interval, False,
+                    error=f"rest_request_failed:{type(exc).__name__}",
+                )
+            raise
         rows = self._result(payload)
         if not isinstance(rows, list):
             if track:
-                self._record_candle_feed_observation(pair, interval, False)
+                self._record_candle_feed_observation(
+                    pair, interval, False, error="invalid_candle_response"
+                )
             self._candle_cache[cache_key] = (time.monotonic(), [])
             return []
 
@@ -458,13 +506,19 @@ class DeltaExchangeRest:
             stale_limit = max(float(settings.max_signal_age_seconds), duration_ms * 2 / 1000)
             if age > stale_limit:
                 if track:
-                    self._record_candle_feed_observation(pair, interval, False)
+                    self._record_candle_feed_observation(
+                        pair, interval, False, error="stale_completed_candles"
+                    )
                 logger.warning(f"DELTA_CANDLES_STALE {pair} {interval} age={age:.1f}s rejected")
                 candles = []
             elif track:
-                self._record_candle_feed_observation(pair, interval, True)
+                self._record_candle_feed_observation(
+                    pair, interval, True, candles=candles
+                )
         elif track:
-            self._record_candle_feed_observation(pair, interval, False)
+            self._record_candle_feed_observation(
+                pair, interval, False, error="no_fresh_completed_candles"
+            )
         self._candle_cache[cache_key] = (time.monotonic(), [dict(c) for c in candles])
         self._prune_candle_cache()
         return candles

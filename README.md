@@ -56,6 +56,8 @@ Signal-only crypto futures scanner for **Delta Exchange India**. It publishes LO
 ## Health and keepalive
 
 - `GET /health`, `GET /ping`, `GET /status`, `GET /metrics`
+- `/health` requires the configured Normal/Momentum universe sizes, a completed fresh scan for each enabled engine, active background workers, and fresh REST candle observations for every active symbol on both required timeframes. It returns HTTP 503 with diagnostic reasons until these conditions are met.
+- WebSocket status and per-symbol update ages are diagnostic; completed-candle scanning remains REST-authoritative and continues in REST fallback mode during socket reconnects.
 - `/ping` and `HEAD /ping` are lightweight liveness responses (204, no body) and do not trigger scans, database work, exchange calls or Telegram delivery.
 - Use an external cron ping every 10–14 minutes if required by the hosting platform.
 - Render runs one web instance and one Uvicorn worker. Production scanning remains paused if durable PostgreSQL storage is unavailable.
