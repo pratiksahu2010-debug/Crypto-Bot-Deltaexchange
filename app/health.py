@@ -223,9 +223,9 @@ async def health(request: Request):
             if database == "unavailable" or database_paused:
                 reasons.append("database_unavailable")
             if normal_symbols_missing:
-                reasons.append("normal_universe_empty")
+                reasons.append("normal_universe_incomplete")
             if momentum_symbols_missing:
-                reasons.append("momentum_universe_empty")
+                reasons.append("momentum_universe_incomplete")
             if telegram_unavailable:
                 reasons.append("telegram_delivery_unavailable")
             if scan_task_failed:
