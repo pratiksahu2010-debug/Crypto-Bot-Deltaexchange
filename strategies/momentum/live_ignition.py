@@ -240,10 +240,8 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
         return _reject("pre_extended", pre_extension_atr=round(pre_extension, 3))
     structure_break = c > ctx.resistance if direction == "LONG" else c < ctx.support
     impulse = pace >= cfg.impulse_pace and move_atr >= cfg.impulse_move_atr
-    # Separate the ignition pathways instead of allowing a lone structural poke
-    # or an old squeeze flag to qualify on weak participation. A single volume
-    # anomaly is not enough: the move, body/close quality and pace gates above
-    # must also pass, and the pathway-specific pace threshold applies here.
+    # Live ignition is indicator-led: recent squeeze release or directional
+    # ATR-normalized momentum with volume pace can qualify without a swing break.
     squeeze_ignition = (ctx.compression_age is not None and
                          ctx.compression_age <= cfg.max_squeeze_age_candles and
                          pace >= cfg.min_squeeze_volume_pace)
@@ -276,7 +274,7 @@ def score_explosion(res: Dict[str, Any], ctx: LiveContext, cfg: LiveConfig = Liv
     speed, pace, move = res["speed_atr_per_min"], res["volume_pace"], res["move_atr"]
     comps = [
         ("speed", 2.0 if speed >= 1.0 else 1.5 if speed >= 0.6 else 1.0 if speed >= 0.35 else 0.5, 2.0,
-         speed, "ATR moved per minute since candle open"),
+         speed, "ATR-normalized move from previous completed close per minute"),
         ("volume_pace", 2.0 if pace >= 3.0 else 1.5 if pace >= 2.2 else 1.0, 2.0,
          pace, "time-normalised volume vs average candle"),
         ("compression_release", 1.0 if res["compression_recent"] else 0.0, 1.0,
@@ -339,7 +337,7 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
                 "move_atr": round(sign * (c - ctx.last_close) / ctx.atr, 3),
                 "volume_ratio": round(vol_ratio, 3),
                 "volume_pace": round(vol_ratio / max(frac, 1e-9), 3),
-                        "held_seconds": round((now_ms - first) / 1000, 1),
+                "held_seconds": round((now_ms - first) / 1000, 1),
                 "high": h, "low": l,
                 # Same invalidation as the closed-candle ORB: opposite edge of the range.
                 "swing_low": rl if direction == "LONG" else None,
