@@ -228,6 +228,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "watchlist_count": 0,
         "valid_symbols_normal": len(symbol_mgr.normal_symbols),
         "valid_symbols_momentum": len(symbol_mgr.momentum_symbols),
+        "expected_symbols_normal": settings.normal_symbol_limit,
+        "expected_symbols_momentum": settings.momentum_symbol_limit,
         "scan_count": 0,
         "ws_reconnects": 0,
         "database": ("postgres" if settings.use_postgres else "sqlite") if database_ready else "unavailable",
