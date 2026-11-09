@@ -28,7 +28,10 @@ class DeltaFuturesStream:
         self._connected_event = asyncio.Event()
         self._channels = {}
         self._reconnect_count = 0
+        self._reconnect_attempts = 0
         self._last_event_ms = None
+        # Last accepted forming-candle update per canonical symbol and timeframe.
+        self._last_symbol_update_ms = {}
         self.on_candle_callback = None
 
     def set_candle_callback(self, callback):
@@ -45,6 +48,20 @@ class DeltaFuturesStream:
     @property
     def reconnect_count(self):
         return self._reconnect_count
+
+    @property
+    def symbol_feed_age_seconds(self):
+        now_ms = int(time.time() * 1000)
+        return {
+            pair: {tf: round(max(0.0, (now_ms - stamp) / 1000.0), 1)
+                   for tf, stamp in values.items()}
+            for pair, values in self._last_symbol_update_ms.items()
+        }
+
+    @staticmethod
+    def reconnect_delay(attempt: int) -> float:
+        """Exponential reconnect backoff, capped to keep recovery bounded."""
+        return float(min(30, 2 ** max(0, min(int(attempt) - 1, 5))))
 
     @property
     def price_feed_age_seconds(self):
@@ -100,11 +117,6 @@ class DeltaFuturesStream:
                     max_size=2**20,
                 ) as connection:
                     self._connection = connection
-                    self._connected = True
-                    self._connected_event.set()
-                    if not first_attempt:
-                        self._reconnect_count += 1
-                    first_attempt = False
                     await connection.send(json.dumps({"type": "enable_heartbeat"}))
                     channels = [
                         {"name": name, "symbols": symbols}
@@ -114,6 +126,13 @@ class DeltaFuturesStream:
                         "type": "subscribe",
                         "payload": {"channels": channels},
                     }))
+                    # Do not advertise the socket as connected until both the
+                    # heartbeat and subscription frames have been sent successfully.
+                    self._connected = True
+                    self._connected_event.set()
+                    if not first_attempt:
+                        self._reconnect_count += 1
+                    first_attempt = False
                     logger.info(
                         f"DELTA_WS_CONNECTED symbols={len(next(iter(self._channels.values()), []))} "
                         f"channels={','.join(self._channels)}"
@@ -134,7 +153,13 @@ class DeltaFuturesStream:
                 self._connected_event.clear()
                 self._connection = None
             if self._running:
-                await asyncio.sleep(min(30, 1 + self._reconnect_count * 2))
+                self._reconnect_attempts += 1
+                delay = self.reconnect_delay(self._reconnect_attempts)
+                logger.warning(
+                    "DELTA_WS_RECONNECT_SCHEDULED attempt=%s delay_seconds=%.0f",
+                    self._reconnect_attempts, delay,
+                )
+                await asyncio.sleep(delay)
 
     def _handle_message(self, message):
         if not isinstance(message, dict):
@@ -193,6 +218,9 @@ class DeltaFuturesStream:
                 if buffered and candle_open_ms < int(buffered[-1].get("time", 0)):
                     return
             self.candles.on_candle(pair, interval, candle)
+            self._last_symbol_update_ms.setdefault(pair, {})[interval] = now_ms
+            # A successful market update resets the consecutive reconnect backoff.
+            self._reconnect_attempts = 0
             # A traded-price candle close is LTP. Do not substitute mark_price.
             self.rest.set_ws_prices(
                 {raw_symbol: {"last_price": candle["close"], "timestamp": raw_ts}},
