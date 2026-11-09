@@ -542,3 +542,35 @@ async def test_health_rejects_primary_candle_too_old_for_normal_but_keeps_moment
     body = json.loads(response.body)
     assert "per_symbol_candle_data_not_ready" in body["reasons"]
     assert body["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] == 90.0
+
+
+@pytest.mark.asyncio
+async def test_health_increases_candle_age_since_last_rest_observation(monkeypatch):
+    from app.health import _market_data_freshness
+    from config import settings
+
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", False)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    feed = {"B-BTC_USDT": {
+        "5m": {
+            "status": "fresh", "observed_at_ms": now_ms - 55_000,
+            "candle_age_seconds": 10.0,
+            "last_completed_open_ms": now_ms - 315_000,
+            "last_completed_close_ms": now_ms - 15_000,
+        },
+        "15m": {
+            "status": "fresh", "observed_at_ms": now_ms - 55_000,
+            "candle_age_seconds": 300.0,
+            "last_completed_open_ms": now_ms - 1_200_000,
+            "last_completed_close_ms": now_ms - 300_000,
+        },
+    }}
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        rest=SimpleNamespace(get_candle_feed_status=lambda: feed),
+        symbol_mgr=SimpleNamespace(normal_symbols=["B-BTC_USDT"], momentum_symbols=[]),
+    )))
+    result = _market_data_freshness(request)
+    assert result["ready"] is False
+    assert result["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] >= 65.0
