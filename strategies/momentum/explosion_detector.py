@@ -44,9 +44,8 @@ def evaluate(indicators: dict) -> bool:
     )
     trend_alignment = _flag(indicators, "ema_aligned")
     release = _flag(indicators, "squeeze_release") or _flag(indicators, "bw_expand")
-    structural_ignition = _flag(indicators, "structure_break")
     return bool(
         directional_momentum and
-        (release or structural_ignition) and
+        release and
         (trend_alignment or _flag(indicators, "roc_direction_ok"))
     )
