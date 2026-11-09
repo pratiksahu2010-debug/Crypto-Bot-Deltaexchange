@@ -555,7 +555,6 @@ class SignalEngine:
             "atr_pct": res["atr_pct"], "rvol": res["volume_pace"], "rvol_basis": "time_normalised",
             "live_move_atr": res["move_atr"], "live_volume_ratio": res["volume_ratio"],
             "live_elapsed_seconds": res["elapsed_seconds"],
-            "close_location": res["close_location"], "body_ratio": res["body_ratio"],
             "structure_break": res.get("structure_break"),
             "squeeze_release": res.get("compression_recent"),
         }
@@ -1013,13 +1012,6 @@ class SignalEngine:
         vwap_v = vwap(high[day_idx:], low[day_idx:], close[day_idx:], volume[day_idx:], period=None)
         rvol = relative_volume(volume, 20)
         atr_pct = (atr_v / close[-1] * 100) if atr_v and close[-1] else None
-        candle_range = max(float(high[-1] - low[-1]), 1e-12)
-        signed_body = float(close[-1] - opens[-1])
-        body = abs(signed_body)
-        body_ratio = body / candle_range
-        close_location = float((close[-1] - low[-1]) / candle_range)
-        upper_wick = float((high[-1] - max(opens[-1], close[-1])) / candle_range)
-        lower_wick = float((min(opens[-1], close[-1]) - low[-1]) / candle_range)
         adx_series = None
         adx_rising = False
         if len(close) >= 3:
@@ -1090,14 +1082,11 @@ class SignalEngine:
             "macd_hist": macd_hist,
             "vwap": vwap_v,
             "rvol": rvol,
-            "body_ratio": body_ratio,
             "confirm_15m": False,
             "high": float(high[-1]), "low": float(low[-1]),
             "resistance": resistance, "support": support,
             "plus_di": plus_di, "minus_di": minus_di,
             "adx_rising": adx_rising,
-            "body_ratio": body_ratio, "close_location": close_location,
-            "upper_wick_ratio": upper_wick, "lower_wick_ratio": lower_wick,
             "rsi_prev": rsi(close[:-1],14),
         }
 
@@ -1439,7 +1428,7 @@ class SignalEngine:
                     f"MOMENTUM_CLASSIFICATION_DIAGNOSTIC pair={pair} direction={direction} "
                     f"fallback_state={momentum_state} checks=[{checks_text}] "
                     f"rvol={rvol} atr_expansion={atr_expansion:.5g} "
-                    f"body_ratio={body_ratio:.5g} adx={adx_v} "
+                    f"adx={adx_v} "
                     f"macd_direction_ok={indicators.get('macd_direction_ok')} "
                     f"roc_direction_ok={indicators.get('roc_direction_ok')} "
                     f"structure_break={indicators.get('structure_break')} "
@@ -2042,7 +2031,6 @@ class SignalEngine:
             f"macd_hist={value('macd_hist')} rvol={value('rvol')} atr_pct={value('atr_pct')} "
             f"ema_extension_atr={value('ema_extension_atr')} "
             f"confirm_15m={value('confirm_15m')} adx_rising={value('adx_rising')} "
-            f"directional_candle={value('directional_candle')} "
             f"score={score if score is not None else 'NA'} "
             f"score_parts=[{score_parts}] failed={','.join(failed) if failed else 'none'}"
         )
