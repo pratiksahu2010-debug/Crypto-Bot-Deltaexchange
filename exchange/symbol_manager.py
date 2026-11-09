@@ -130,14 +130,25 @@ class SymbolManager:
                 if quote_volume:
                     break
             if not quote_volume:
-                # Fallback only for feeds that provide base volume and LTP.
-                base_volume = self._as_positive(
-                    row.get("base_volume") or row.get("v")
+                # Delta Futures volume is contract count, not necessarily base
+                # asset quantity. Never estimate USD turnover from contracts:
+                # contract_value and unit currency vary by product. Delta's
+                # normalized rows always carry turnover_usd (including zero).
+                is_delta_market = (
+                    "turnover_usd" in row
+                    or "delta_symbol" in row
+                    or str(row.get("contract_type") or "").lower() == "perpetual_futures"
                 )
-                last_price = self._as_positive(
-                    row.get("last_price") or row.get("lastPrice") or row.get("ls")
-                )
-                quote_volume = base_volume * last_price if base_volume and last_price else 0.0
+                if not is_delta_market:
+                    # Compatibility fallback for legacy feeds whose volume is
+                    # explicitly a base-asset quantity rather than contracts.
+                    base_volume = self._as_positive(
+                        row.get("base_volume") or row.get("v")
+                    )
+                    last_price = self._as_positive(
+                        row.get("last_price") or row.get("lastPrice") or row.get("ls")
+                    )
+                    quote_volume = base_volume * last_price if base_volume and last_price else 0.0
             if quote_volume > 0:
                 for alias in aliases:
                     key = self._norm(alias)
