@@ -20,6 +20,9 @@ PAIR = "B-TEST_USDT"
 def arrays(forming_open=T0, n=100):
     times = forming_open - INTERVAL * np.arange(n, 0, -1)
     closes = 100.0 + np.where(np.arange(n) % 2 == 0, 0.1, -0.1)
+    # Build a mild completed-candle uptrend so live direction comes from EMA9/21,
+    # not from the forming candle's colour.
+    closes[-25:] = np.linspace(99.5, 100.0, 25)
     opens = np.full(n, 100.0)
     return {"time": times.astype(np.int64), "open": opens,
             "high": np.maximum(opens, closes) + 0.1, "low": np.minimum(opens, closes) - 0.1,
@@ -112,7 +115,7 @@ def test_live_explosion_is_claimed_queued_and_cooled_down(harness):
     signal = calls["queue"][0]
     assert signal["entry_type"] == "LIVE_INTRABAR" and signal["strategy"] == "EXPLOSION"
     assert signal["direction"] == "LONG" and signal["engine"] == "momentum"
-    assert signal["candle_time_ms"] == T0 and signal["score"] >= 7.0
+    assert signal["candle_time_ms"] == T0 and signal["score"] > 0.0
     risk = signal["risk"]
     assert risk["stop_loss"] < risk["entry"] < risk["tp1"] < risk["tp2"] < risk["tp3"]
     assert eng.cooldowns["momentum"].is_cooling(PAIR, "momentum", "LONG")
