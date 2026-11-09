@@ -1167,7 +1167,7 @@ class SignalEngine:
                     strategy=strategy,
                 )
                 return
-            # Score the six requested Normal indicators separately from the RVOL participation gate.
+            # Score the five core Normal indicators separately from the RVOL participation gate.
             self.watchlists["normal"].remove_pair(pair, "normal")
             result = self.normal_scoring.score_normal(indicators, direction)
         else:
