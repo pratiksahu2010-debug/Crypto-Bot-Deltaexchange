@@ -30,6 +30,9 @@ class DeltaFuturesStream:
         self._reconnect_count = 0
         self._reconnect_attempts = 0
         self._last_event_ms = None
+        self._last_heartbeat_ms = None
+        self._subscription_error = None
+        self._subscribed_channels = set()
         # Last accepted forming-candle update per canonical symbol and timeframe.
         self._last_symbol_update_ms = {}
         self.on_candle_callback = None
@@ -117,6 +120,13 @@ class DeltaFuturesStream:
                     max_size=2**20,
                 ) as connection:
                     self._connection = connection
+                    self._connected = False
+                    self._connected_event.clear()
+                    self._last_heartbeat_ms = None
+                    self._subscription_error = None
+                    self._subscribed_channels = set()
+                    connection_started_ms = int(time.time() * 1000)
+                    connection_counted = False
                     await connection.send(json.dumps({"type": "enable_heartbeat"}))
                     channels = [
                         {"name": name, "symbols": symbols}
@@ -126,23 +136,41 @@ class DeltaFuturesStream:
                         "type": "subscribe",
                         "payload": {"channels": channels},
                     }))
-                    # Do not advertise the socket as connected until both the
-                    # heartbeat and subscription frames have been sent successfully.
-                    self._connected = True
-                    self._connected_event.set()
-                    if not first_attempt:
-                        self._reconnect_count += 1
-                    first_attempt = False
+                    # The server must acknowledge each requested channel/symbol
+                    # before this connection is considered subscribed/ready.
                     logger.info(
-                        f"DELTA_WS_CONNECTED symbols={len(next(iter(self._channels.values()), []))} "
+                        f"DELTA_WS_SUBSCRIBE_SENT symbols={len(next(iter(self._channels.values()), []))} "
                         f"channels={','.join(self._channels)}"
                     )
-                    async for raw in connection:
+                    while self._running:
+                        try:
+                            raw = await asyncio.wait_for(connection.recv(), timeout=35.0)
+                        except asyncio.TimeoutError as exc:
+                            raise ConnectionError("heartbeat_timeout_35s") from exc
                         try:
                             message = json.loads(raw)
                         except (TypeError, ValueError):
                             continue
                         self._handle_message(message)
+                        if self._subscription_error:
+                            raise ConnectionError(self._subscription_error)
+                        if self._connected and not connection_counted:
+                            if not first_attempt:
+                                self._reconnect_count += 1
+                            first_attempt = False
+                            connection_counted = True
+                            logger.info(
+                                f"DELTA_WS_CONNECTED symbols={len(next(iter(self._channels.values()), []))} "
+                                f"channels={','.join(self._channels)}"
+                            )
+                        heartbeat_ms = self._last_heartbeat_ms
+                        heartbeat_age_ms = (
+                            int(time.time() * 1000) - heartbeat_ms
+                            if heartbeat_ms is not None
+                            else int(time.time() * 1000) - connection_started_ms
+                        )
+                        if heartbeat_age_ms > 35_000:
+                            raise ConnectionError("heartbeat_timeout_35s")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -167,6 +195,35 @@ class DeltaFuturesStream:
         kind = str(message.get("type") or "")
         if kind == "heartbeat":
             self._last_event_ms = int(time.time() * 1000)
+            self._last_heartbeat_ms = self._last_event_ms
+            return
+        if kind == "subscriptions":
+            acknowledged = {}
+            errors = []
+            for channel in message.get("channels", []) or []:
+                if not isinstance(channel, dict):
+                    continue
+                name = str(channel.get("name") or "")
+                if channel.get("error"):
+                    errors.append(f"{name}:{channel.get('error')}")
+                    continue
+                acknowledged[name] = set(str(x).upper() for x in channel.get("symbols", []) or [])
+            missing = []
+            for name, requested in self._channels.items():
+                received = acknowledged.get(name, set())
+                absent = set(str(x).upper() for x in requested) - received
+                if absent:
+                    missing.append(f"{name}:{','.join(sorted(absent))}")
+            if errors or missing:
+                self._subscription_error = (
+                    "subscription_ack_incomplete errors="
+                    + ",".join(errors) + " missing=" + ",".join(missing)
+                )
+                logger.error("DELTA_WS_SUBSCRIPTION_REJECTED %s", self._subscription_error)
+                return
+            self._subscribed_channels = set(acknowledged)
+            self._connected = True
+            self._connected_event.set()
             return
         if kind.startswith("candlestick_"):
             self._handle_candlestick(message)
