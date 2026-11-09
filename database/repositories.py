@@ -389,6 +389,7 @@ async def enqueue_signal_deliveries(signal: dict, recipient_ids: list[int]) -> i
     """Persist one independent Telegram outbox item per recipient."""
     import json
     from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select
     from database import db as database_db
     from database.models import SignalDeliveryRecord
     from config import settings
@@ -446,9 +447,23 @@ async def enqueue_signal_deliveries(signal: dict, recipient_ids: list[int]) -> i
             statement = insert(SignalDeliveryRecord).values(values).on_conflict_do_nothing(
                 index_elements=[SignalDeliveryRecord.delivery_key]
             )
-            result = await session.execute(statement)
+            await session.execute(statement)
             await session.commit()
-            return int(result.rowcount or 0)
+            # Treat an already queued, in-flight or delivered idempotency key as
+            # accepted. INSERT ... DO NOTHING returns rowcount=0 for duplicates;
+            # interpreting that as queue failure would release the signal claim
+            # and repeatedly retry an alert that is already durably represented.
+            accepted = await session.execute(
+                select(SignalDeliveryRecord.delivery_key, SignalDeliveryRecord.status)
+                .where(SignalDeliveryRecord.delivery_key.in_(
+                    [item["delivery_key"] for item in values]
+                ))
+            )
+            accepted_statuses = {"pending", "retry", "sending", "delivered"}
+            return sum(
+                1 for _, status in accepted.all()
+                if status in accepted_statuses
+            )
         except Exception as exc:
             await session.rollback()
             logger.error("Telegram outbox enqueue failed: %s", exc)
