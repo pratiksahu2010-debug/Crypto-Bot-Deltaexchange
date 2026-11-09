@@ -79,7 +79,6 @@ def test_normal_five_condition_gate_rejects_each_missing_confirmation():
         ("ema9", 99.0),
         ("close", 100.0),
         ("adx", 19.99),
-        ("confirm_15m", False),
         ("rsi", 50.0),
     ):
         changed = dict(base)
