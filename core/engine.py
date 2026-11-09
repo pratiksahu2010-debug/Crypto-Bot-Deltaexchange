@@ -194,7 +194,6 @@ def _normal_threshold_gates(
         ),
         "adx_min_25": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
         "atr_valid": bool(atr_value is not None and atr_value > 0),
-        "context_15m": indicators.get("confirm_15m") is True,
     }
 
 
@@ -544,8 +543,8 @@ class SignalEngine:
             live_price, atr_v, direction,
             swing_low=res.get("swing_low"), swing_high=res.get("swing_high"),
         )
-        if not risk or risk.rr1 < 2.0:
-            return reject("risk_or_rr_invalid")
+        if not risk:
+            return reject("risk_levels_unavailable")
         if age_s() > max_age:
             return reject("stale_after_checks")
 
@@ -978,13 +977,6 @@ class SignalEngine:
         candle_ts = int(arr["time"][-1])
         primary_interval_ms = int(parse_interval(primary).total_seconds() * 1000)
         candle_close_ms = candle_ts + primary_interval_ms
-        pending_confirmation = self._pending_signal_confirmations.get((engine, pair))
-        if pending_confirmation and candle_ts > int(pending_confirmation.get("candle_ts", 0)) + primary_interval_ms:
-            self._pending_signal_confirmations.pop((engine, pair), None)
-            logger.info(
-                "SIGNAL_CONFIRMATION_EXPIRED pair=%s engine=%s first_candle=%s current_candle=%s",
-                pair, engine, pending_confirmation.get("candle_ts"), candle_ts,
-            )
         # Update active signal outcomes on every fresh closed candle before deciding
         # whether this engine has already evaluated the candle.
         await self._update_signal_outcomes(pair, engine, float(high[-1]), float(low[-1]), candle_ts)
@@ -1228,10 +1220,6 @@ class SignalEngine:
         indicators["direction"] = direction
         # Delta OHLCV does not expose aggressor-side buy/sell volume.
         # Use completed candle body direction as an explicit participation proxy.
-        indicators["directional_volume_proxy_ok"] = bool(
-            (direction == "LONG" and signed_body > 0) or
-            (direction == "SHORT" and signed_body < 0)
-        )
         indicators["macd_direction_ok"] = bool(
             macd_hist is not None and (
                 (direction == "LONG" and macd_hist > 0) or
@@ -1253,10 +1241,6 @@ class SignalEngine:
         indicators["not_chasing"] = extension <= (
             settings.normal_max_extension_atr if engine == "normal" else 1.25
         )
-        indicators["directional_candle"] = bool(
-            (direction == "LONG" and close_location >= 0.65 and signed_body > 0) or
-            (direction == "SHORT" and close_location <= 0.35 and signed_body < 0))
-
         if engine == "normal":
             # Fresh indicator transition: EMA cross, VWAP reclaim or EMA pullback.
             # No candle-colour/body/wick predicate participates in the trigger.
@@ -1278,31 +1262,18 @@ class SignalEngine:
                 if ema9_s is not None and ema21_s is not None and atr_v else None
             )
             if trigger is None:
-                pending = self._pending_signal_confirmations.get((engine, pair))
-                if (
-                    pending
-                    and pending.get("direction") == direction
-                    and candle_ts == int(pending.get("candle_ts", 0)) + primary_interval_ms
-                ):
-                    # The setup already fired on the prior completed candle.
-                    # Re-check all live indicator gates below without requiring
-                    # the original cross/pullback trigger to happen a second time.
-                    trigger = (pending.get("strategy", "TREND_CONTINUATION"), 1)
-                else:
-                    if pending:
-                        self._pending_signal_confirmations.pop((engine, pair), None)
-                    logger.info(
-                        f"NORMAL_NO_FRESH_TRIGGER pair={pair} direction={direction} "
-                        f"ema9={ema9} ema21={ema21} adx={adx_v} close={float(close[-1]):.8g} "
-                        f"vwap={vwap_v} atr={atr_v}"
-                    )
-                    self.watchlists["normal"].remove_pair(pair, "normal")
-                    self._log_candle_evaluation(
-                        pair, engine, direction, candle_ts, candle_close_ms,
-                        confirm_candle_time_ms, indicators, "REJECT",
-                        failed=["no_fresh_trigger"], strategy="NONE",
-                    )
-                    return
+                logger.info(
+                    f"NORMAL_NO_FRESH_TRIGGER pair={pair} direction={direction} "
+                    f"ema9={ema9} ema21={ema21} adx={adx_v} close={float(close[-1]):.8g} "
+                    f"vwap={vwap_v} atr={atr_v}"
+                )
+                self.watchlists["normal"].remove_pair(pair, "normal")
+                self._log_candle_evaluation(
+                    pair, engine, direction, candle_ts, candle_close_ms,
+                    confirm_candle_time_ms, indicators, "REJECT",
+                    failed=["no_fresh_trigger"], strategy="NONE",
+                )
+                return
             strategy, trigger_age = trigger
             indicators["trigger_age_candles"] = trigger_age
             gates = _normal_threshold_gates(
@@ -1573,79 +1544,11 @@ class SignalEngine:
             )
             return
 
-        # Every Telegram signal, including pre-explosion and ORB pre-breakout,
-        # must survive a second completed candle. Early setups remain watchlist
-        # candidates until follow-through is confirmed.
-        early_indicator_setup = False
-        confirmation_key = (engine, pair)
-        pending_confirmation = self._pending_signal_confirmations.get(confirmation_key)
-        if not early_indicator_setup and pending_confirmation is None:
-            self._pending_signal_confirmations[confirmation_key] = {
-                "direction": direction, "strategy": strategy, "candle_ts": candle_ts,
-                "close": float(close[-1]),
-            }
-            self._last_processed.setdefault(engine, {})[pair] = candle_ts
-            self._log_candle_evaluation(
-                pair, engine, direction, candle_ts, candle_close_ms,
-                confirm_candle_time_ms, indicators, "WATCHLIST",
-                failed=["awaiting_second_closed_candle"], strategy=strategy,
-                score=result.total, score_parts=score_parts,
-            )
-            self.watchlists[engine].add({
-                "pair": pair, "display": self.symbols.display_name(pair),
-                "direction": direction, "engine": engine, "strategy": strategy,
-                "score": result.total, "grade": "WATCHLIST",
-                "price": float(close[-1]), "watch_reason": "WAITING_FOR_FOLLOW_THROUGH",
-                "timestamp": utc_iso(utc_now()),
-            })
-            logger.info(
-                "SIGNAL_CONFIRMATION_ARMED pair=%s engine=%s direction=%s candle=%s",
-                pair, engine, direction, candle_ts,
-            )
-            return
-
-        # A missing bar, changed direction or non-consecutive candle restarts the
-        # confirmation sequence rather than allowing a stale setup to mature.
-        if not early_indicator_setup and (
-            pending_confirmation.get("direction") != direction
-            or candle_ts != int(pending_confirmation.get("candle_ts", 0)) + primary_interval_ms
-        ):
-            self._pending_signal_confirmations.pop(confirmation_key, None)
-            self._log_candle_evaluation(
-                pair, engine, direction, candle_ts, candle_close_ms,
-                confirm_candle_time_ms, indicators, "REJECT",
-                failed=["confirmation_sequence_broken"], strategy=strategy,
-                score=result.total, score_parts=score_parts,
-            )
-            self._last_processed.setdefault(engine, {})[pair] = candle_ts
-            return
-
-        if not early_indicator_setup and not _signal_follow_through_confirmed(
-            engine, direction, strategy, indicators,
-            float(pending_confirmation["close"]), float(close[-1]),
-        ):
-            self._pending_signal_confirmations.pop(confirmation_key, None)
-            self._last_processed.setdefault(engine, {})[pair] = candle_ts
-            self.watchlists[engine].remove_pair(pair, engine)
-            self._log_candle_evaluation(
-                pair, engine, direction, candle_ts, candle_close_ms,
-                confirm_candle_time_ms, indicators, "REJECT",
-                failed=["second_candle_no_follow_through"], strategy=strategy,
-                score=result.total, score_parts=score_parts,
-            )
-            logger.info(
-                "SIGNAL_CONFIRMATION_FAILED pair=%s engine=%s direction=%s candle=%s",
-                pair, engine, direction, candle_ts,
-            )
-            return
-
-        self._pending_signal_confirmations.pop(confirmation_key, None)
+        # Indicator-qualified setups are eligible immediately; no second-candle
+        # follow-through, candle-colour, or wick-shape confirmation is required.
+        self._pending_signal_confirmations.pop((engine, pair), None)
         self.watchlists[engine].remove_pair(pair, engine)
-        indicators["confirmation_candles"] = 1 if early_indicator_setup else 2
-        logger.info(
-            "INDICATOR_SETUP_ACCEPTED pair=%s engine=%s strategy=%s direction=%s candles=%s",
-            pair, engine, strategy, direction, indicators["confirmation_candles"],
-        )
+        indicators["confirmation_candles"] = 1
 
         swing_high, swing_low = _confirmed_swing_levels(high, low, lookback=30, left=2, right=2)
         if engine == "momentum" and strategy in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"):
@@ -1658,21 +1561,11 @@ class SignalEngine:
             swing_low=swing_low, swing_high=swing_high,
         ) if atr_v else None
         strategy = strategy if engine == "normal" else momentum_state
-        if not risk or risk.rr1 < 2.0:
+        if not risk:
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
-                failed=["risk_or_rr_invalid"], strategy=strategy,
-                score=result.total, score_parts=score_parts,
-            )
-            return
-        if not _has_room_for_2r_target(
-            high, low, float(close[-1]), risk.tp1, atr_v, direction,
-        ):
-            self._log_candle_evaluation(
-                pair, engine, direction, candle_ts, candle_close_ms,
-                confirm_candle_time_ms, indicators, "REJECT",
-                failed=["insufficient_room_to_tp1"], strategy=strategy,
+                failed=["risk_levels_unavailable"], strategy=strategy,
                 score=result.total, score_parts=score_parts,
             )
             return
