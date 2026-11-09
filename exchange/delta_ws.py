@@ -107,6 +107,45 @@ class DeltaFuturesStream:
             logger.warning("DELTA_WS_CONNECT_TIMEOUT REST_fallback=true reconnect_loop=active")
             return False
 
+    async def update_symbols(self, pairs: Iterable[str]) -> bool:
+        """Refresh candle subscriptions when quarantine/recovery changes the universe.
+
+        Reconnect rather than layering unsubscribe/subscribe state onto an old
+        socket; the new connection is ready only after Delta acknowledges the
+        complete replacement subscription set.
+        """
+        symbols = []
+        for pair in sorted(set(pairs)):
+            try:
+                symbols.append(self.rest.delta_symbol_for_pair(pair))
+            except KeyError:
+                logger.warning(
+                    "DELTA_WS_SYMBOL_SKIPPED pair=%s reason=no_live_product_mapping", pair
+                )
+        if not symbols:
+            return False
+        intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+        updated = {
+            f"candlestick_{interval}": symbols for interval in intervals
+        }
+        if updated == self._channels:
+            return False
+        self._channels = updated
+        self._connected = False
+        self._connected_event.clear()
+        self._reconnect_attempts = 0
+        connection = self._connection
+        if connection is not None:
+            try:
+                await connection.close(code=1000, reason="active_universe_updated")
+            except Exception as exc:
+                logger.warning("DELTA_WS_UNIVERSE_RECONNECT_CLOSE_FAILED error=%s", exc)
+        logger.info(
+            "DELTA_WS_UNIVERSE_UPDATED symbols=%s channels=%s",
+            len(symbols), ",".join(updated),
+        )
+        return True
+
     async def _run(self):
         first_attempt = True
         while self._running:
