@@ -399,6 +399,13 @@ class SymbolManager:
         self.momentum_symbols = select(self._ranked_momentum, "Momentum")[:momentum_limit]
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
+        # Clear temporary quarantine diagnostics as soon as a recovered
+        # configured symbol is eligible and re-enters either active universe.
+        for pair in selected:
+            reason = self.skipped_reasons.get(pair, "")
+            if reason.startswith("temporarily quarantined until "):
+                self.skipped_reasons.pop(pair, None)
+
         for pair, item in self._quarantined.items():
             retry_at = datetime.fromtimestamp(item["retry_at"], tz=timezone.utc).isoformat()
             self.skipped_reasons[pair] = (
