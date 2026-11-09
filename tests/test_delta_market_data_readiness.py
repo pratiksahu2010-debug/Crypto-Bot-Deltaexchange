@@ -337,3 +337,45 @@ async def test_telegram_outbox_retries_a_transient_send_failure(tmp_path):
     finally:
         database_db.engine, database_db.SessionLocal = old_engine, old_factory
         await test_engine.dispose()
+
+
+def test_websocket_is_not_ready_until_delta_acknowledges_all_subscriptions():
+    from exchange.delta_ws import DeltaFuturesStream
+    from exchange.candle_builder import CandleBuilder
+
+    stream = DeltaFuturesStream(CandleBuilder(), rest_client=object())
+    stream._channels = {
+        "candlestick_5m": ["BTCUSD", "ETHUSD"],
+        "candlestick_15m": ["BTCUSD", "ETHUSD"],
+    }
+    stream._handle_message({
+        "type": "subscriptions",
+        "channels": [
+            {"name": "candlestick_5m", "symbols": ["BTCUSD", "ETHUSD"]},
+            {"name": "candlestick_15m", "symbols": ["BTCUSD", "ETHUSD"]},
+        ],
+    })
+    assert stream.connected is True
+    assert stream._connected_event.is_set()
+    assert stream._subscribed_channels == {"candlestick_5m", "candlestick_15m"}
+
+    rejected = DeltaFuturesStream(CandleBuilder(), rest_client=object())
+    rejected._channels = {"candlestick_5m": ["BTCUSD", "ETHUSD"]}
+    rejected._handle_message({
+        "type": "subscriptions",
+        "channels": [{"name": "candlestick_5m", "symbols": ["BTCUSD"]}],
+    })
+    assert rejected.connected is False
+    assert not rejected._connected_event.is_set()
+    assert "ETHUSD" in rejected._subscription_error
+
+
+def test_websocket_heartbeat_updates_heartbeat_clock(monkeypatch):
+    from exchange.delta_ws import DeltaFuturesStream
+    from exchange.candle_builder import CandleBuilder
+
+    now_ms = 1_800_000_000_000
+    monkeypatch.setattr("exchange.delta_ws.time.time", lambda: now_ms / 1000)
+    stream = DeltaFuturesStream(CandleBuilder(), rest_client=object())
+    stream._handle_message({"type": "heartbeat"})
+    assert stream._last_heartbeat_ms == now_ms
