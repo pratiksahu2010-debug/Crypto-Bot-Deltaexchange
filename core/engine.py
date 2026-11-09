@@ -1741,10 +1741,6 @@ class SignalEngine:
                 classify_entry_state(live_price, risk.entry, zone_low, zone_high, direction)
                 if live_price is not None else "EXPIRED"
             )
-            if entry_state == "IMMEDIATE":
-                # The live ticker/entry-zone validation above is sufficient;
-                # do not gate a signal on order-book spread or depth.
-                pass
             if entry_state == "RETEST":
                 # Preserve this qualified setup briefly. It can alert only if a
                 # fresh Futures LTP returns to the original entry band without
