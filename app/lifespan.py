@@ -47,31 +47,23 @@ def validate_runtime_config() -> None:
     """Fail fast on invalid timeframe and safety-critical runtime settings."""
     # Parse first so malformed/non-positive values retain their precise errors.
     primary = parse_interval(settings.candle_primary_tf)
-    confirm = parse_interval(settings.candle_confirm_tf)
     supported_candle_intervals = {
         "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h",
         "6h", "12h", "1d", "1w",
     }
     for setting_name, interval in (
         ("CANDLE_PRIMARY_TF", settings.candle_primary_tf),
-        ("CANDLE_CONFIRM_TF", settings.candle_confirm_tf),
     ):
         if interval not in supported_candle_intervals:
             raise ValueError(
                 f"{setting_name}={interval!r} is unsupported by the Delta Exchange India Futures candle adapter; "
                 f"supported intervals: {', '.join(sorted(supported_candle_intervals))}"
             )
-    if confirm <= primary:
-        raise ValueError("CANDLE_CONFIRM_TF must be greater than CANDLE_PRIMARY_TF")
-    # The production signal specification is 5m entries with 15m context.
-    # ORB also builds its opening range from fixed 5m Futures candles; allowing
-    # a different primary timeframe would mix indicator and ORB time bases.
-    if settings.is_production and (
-        settings.candle_primary_tf != "5m" or settings.candle_confirm_tf != "15m"
-    ):
+    # Production entries and ORB use completed 5m candles. The legacy
+    # CANDLE_CONFIRM_TF setting is not a signal dependency.
+    if settings.is_production and settings.candle_primary_tf != "5m":
         raise ValueError(
-            "Production strategy requires CANDLE_PRIMARY_TF=5m and "
-            "CANDLE_CONFIRM_TF=15m; ORB and Normal indicators use these fixed time bases."
+            "Production strategy requires CANDLE_PRIMARY_TF=5m for entries and ORB."
         )
 
     # NaN silently bypasses ordinary < / > checks. Reject non-finite strategy,

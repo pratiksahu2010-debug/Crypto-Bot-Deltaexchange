@@ -71,21 +71,18 @@ def _market_data_freshness(request: Request) -> dict:
     if not callable(getter) or symbols is None:
         return {"ready": False, "expected": 0, "fresh": 0, "missing_or_stale": 0, "issues": []}
 
-    pairs = set()
+    # Only completed primary candles are required. Use each engine's age
+    # budget per symbol; shared symbols inherit the stricter of the two.
+    pair_age_limits = {}
     if settings.enable_normal_engine:
-        pairs.update(getattr(symbols, "normal_symbols", []) or [])
+        for pair in getattr(symbols, "normal_symbols", []) or []:
+            pair_age_limits[pair] = float(settings.normal_max_signal_age_seconds)
     if settings.enable_momentum_engine:
-        pairs.update(getattr(symbols, "momentum_symbols", []) or [])
-    intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
-    enabled_age_limits = []
-    if settings.enable_normal_engine:
-        enabled_age_limits.append(float(settings.normal_max_signal_age_seconds))
-    if settings.enable_momentum_engine:
-        enabled_age_limits.append(float(settings.max_signal_age_seconds))
-    readiness_entry_age_limit = (
-        min(enabled_age_limits) if enabled_age_limits
-        else float(settings.max_signal_age_seconds)
-    )
+        for pair in getattr(symbols, "momentum_symbols", []) or []:
+            limit = float(settings.max_signal_age_seconds)
+            pair_age_limits[pair] = min(pair_age_limits.get(pair, limit), limit)
+    pairs = set(pair_age_limits)
+    intervals = (settings.candle_primary_tf,)
     feed = getter() or {}
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     expected = len(pairs) * len(intervals)
@@ -105,10 +102,12 @@ def _market_data_freshness(request: Request) -> dict:
                 item.get("candle_age_seconds")
                 if isinstance(item, dict) else None
             )
-            candle_age_limit = (
-                readiness_entry_age_limit
-                if interval == settings.candle_primary_tf
-                else interval_seconds + readiness_entry_age_limit
+            candle_age_limit = pair_age_limits.get(
+                pair, float(settings.max_signal_age_seconds)
+            ) if interval == settings.candle_primary_tf else (
+                interval_seconds + pair_age_limits.get(
+                    pair, float(settings.max_signal_age_seconds)
+                )
             )
             try:
                 effective_candle_age = (
@@ -207,13 +206,13 @@ async def health(request: Request):
             (settings.enable_normal_engine and state.get("normal_engine") == "paused_database_unavailable")
             or (settings.enable_momentum_engine and state.get("momentum_engine") == "paused_database_unavailable")
         )
-        normal_symbols_missing = (
+        normal_universe_empty = (
             settings.enable_normal_engine
-            and int(state.get("valid_symbols_normal") or 0) < settings.normal_symbol_limit
+            and int(state.get("valid_symbols_normal") or 0) == 0
         )
-        momentum_symbols_missing = (
+        momentum_universe_empty = (
             settings.enable_momentum_engine
-            and int(state.get("valid_symbols_momentum") or 0) < settings.momentum_symbol_limit
+            and int(state.get("valid_symbols_momentum") or 0) == 0
         )
         telegram_unavailable = settings.is_production and not telegram_delivery_ready
         scan_task_failed = (
@@ -248,8 +247,8 @@ async def health(request: Request):
         if (
             database == "unavailable"
             or database_paused
-            or normal_symbols_missing
-            or momentum_symbols_missing
+            or normal_universe_empty
+            or momentum_universe_empty
             or telegram_unavailable
             or scan_task_failed
             or retest_task_failed
@@ -264,14 +263,10 @@ async def health(request: Request):
             reasons = []
             if database == "unavailable" or database_paused:
                 reasons.append("database_unavailable")
-            if normal_symbols_missing:
-                if int(state.get("valid_symbols_normal") or 0) <= 0:
-                    reasons.append("normal_universe_empty")
-                reasons.append("normal_universe_incomplete")
-            if momentum_symbols_missing:
-                if int(state.get("valid_symbols_momentum") or 0) <= 0:
-                    reasons.append("momentum_universe_empty")
-                reasons.append("momentum_universe_incomplete")
+            if normal_universe_empty:
+                reasons.append("normal_universe_empty")
+            if momentum_universe_empty:
+                reasons.append("momentum_universe_empty")
             if telegram_unavailable:
                 reasons.append("telegram_delivery_unavailable")
             if scan_task_failed:

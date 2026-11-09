@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 from config import settings
 from utils.logger import logger
 from utils.time_utils import utc_iso, utc_now, parse_interval
-from core.candle_timing import candle_age_seconds, latest_asof_candle_index, seconds_until_next_candle_boundary
+from core.candle_timing import candle_age_seconds, seconds_until_next_candle_boundary
 from utils.memory_monitor import check_memory, safe_gc
 from exchange.delta_rest import DeltaExchangeRest
 from exchange.symbol_manager import SymbolManager
@@ -20,7 +20,7 @@ from core.signal_manager import SignalManager
 from core.risk_calculator import calculate_risk, is_entry_price_actionable, classify_entry_state
 from strategies.normal.strategy_manager import detect_strategy, diagnose_strategy
 from strategies.normal.entry_trigger import (
-    detect_fresh_trigger, normal_entry_filters, session_vwap_series,
+    detect_fresh_trigger, session_vwap_series,
     resolve_symbol_pullback_touch_atr,
 )
 from strategies.momentum.strategy_manager import detect_momentum_state, diagnose_momentum_state, is_pre_explosion_signal
@@ -36,7 +36,6 @@ from indicators.ema import ema_series
 
 # Covers a full UTC day (288 x 5m / 96 x 15m) plus a small history margin.
 PRIMARY_CANDLE_HISTORY = 300
-CONFIRM_CANDLE_HISTORY = 120
 VALID_MOMENTUM_STATES = frozenset({
     "EXPLOSION", "SQUEEZE_RELEASE", "PRE_EXPLOSION_SIGNAL", "CONTINUATION",
     "VOLUME_SPIKE", "ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST",
@@ -69,7 +68,7 @@ def _normal_threshold_gates(
     if direction not in ("LONG", "SHORT") or not isinstance(indicators, dict):
         return {
             "ema_9_21": False, "vwap_direction": False, "rsi_direction": False,
-            "adx_min_25": False, "atr_valid": False, "context_15m": False,
+            "adx_min_25": False, "atr_valid": False,
         }
 
     def number(key):
@@ -113,7 +112,7 @@ def _normal_relative_volume_gate(
         threshold = float("nan")
     relative_volume_ok = (
         np.isfinite(rvol_value) and np.isfinite(threshold)
-        and threshold > 0 and rvol_value >= max(1.4, threshold)
+        and threshold > 0 and rvol_value >= threshold
     )
     # Candle-body direction is deliberately NOT a Normal Engine gate.
     # Delta OHLCV has no aggressor-side volume; keep the user's simple
@@ -874,42 +873,9 @@ class SignalEngine:
             adx_series = _a[0] if _a is not None else None
             adx_rising = bool(adx_series is not None and np.isfinite(adx_series[-1]) and np.isfinite(adx_series[-2]) and adx_series[-1] > adx_series[-2])
 
-        # 15m context is deliberately based on completed EMA9/EMA21 direction only.
-        confirm_long = confirm_short = False
+        # Signal qualification uses completed primary-timeframe candles only.
+        # Higher-timeframe candles are not fetched or used as a signal dependency.
         confirm_candle_time_ms = None
-        conf_data = await self.rest.get_candles(pair, settings.candle_confirm_tf, limit=CONFIRM_CANDLE_HISTORY)
-        if conf_data and len(conf_data) >= 21:
-            self.candles.seed(pair, settings.candle_confirm_tf, conf_data)
-            c_arr = self.candles.get_arrays(pair, settings.candle_confirm_tf)
-            c_close = np.asarray(c_arr.get("close", []), dtype=float)
-            c_high = np.asarray(c_arr.get("high", []), dtype=float)
-            c_low = np.asarray(c_arr.get("low", []), dtype=float)
-            c_vol = np.asarray(c_arr.get("volume", []), dtype=float)
-            c_times = np.asarray(c_arr.get("time", []), dtype=np.int64)
-            confirm_interval_ms = int(parse_interval(settings.candle_confirm_tf).total_seconds() * 1000)
-            # Use only context candles that had closed by the entry candle's close.
-            # This prevents a REST request crossing a 15m boundary from leaking
-            # a newer 15m candle into an older 5m decision.
-            context_idx = latest_asof_candle_index(c_times, confirm_interval_ms, candle_close_ms)
-            if context_idx is not None:
-                c_close = c_close[:context_idx + 1]
-                c_high = c_high[:context_idx + 1]
-                c_low = c_low[:context_idx + 1]
-                c_vol = c_vol[:context_idx + 1]
-                c_times = c_times[:context_idx + 1]
-            else:
-                c_close = c_close[:0]
-                c_high = c_high[:0]
-                c_low = c_low[:0]
-                c_vol = c_vol[:0]
-                c_times = c_times[:0]
-            c_ema9, c_ema21 = ema(c_close, 9), ema(c_close, 21)
-            confirm_candle_time_ms = int(c_times[-1]) if c_times.size else None
-            # Keep the higher-timeframe context deliberately simple: 15m EMA9/21
-            # direction only. No EMA50, VWAP, or slope requirement is added.
-            if c_ema9 is not None and c_ema21 is not None:
-                confirm_long = c_ema9 > c_ema21
-                confirm_short = c_ema9 < c_ema21
 
         # Market structure: last close must break the prior confirmed swing.
         structure_ok = False
@@ -936,7 +902,6 @@ class SignalEngine:
             "macd_hist": macd_hist,
             "vwap": vwap_v,
             "rvol": rvol,
-            "confirm_15m": False,
             "high": float(high[-1]), "low": float(low[-1]),
             "resistance": resistance, "support": support,
             "plus_di": plus_di, "minus_di": minus_di,
@@ -1068,7 +1033,6 @@ class SignalEngine:
                 (direction == "SHORT" and macd_hist < 0)
             )
         )
-        indicators["confirm_15m"] = confirm_long if direction == "LONG" else confirm_short
         indicators["structure_direction_ok"] = bool(
             (direction == "LONG" and close[-1] > (resistance or float("inf"))) or
             (direction == "SHORT" and close[-1] < (support or -float("inf"))))
@@ -1122,9 +1086,11 @@ class SignalEngine:
                 indicators, direction, settings.normal_adx_min,
                 strategy=strategy,
             )
-            gates.update(_normal_relative_volume_gate(
-                indicators, direction, settings.normal_rvol_min,
-            ))
+            # RVOL is optional: when disabled it remains diagnostic data only.
+            if settings.normal_rvol_gate_enabled:
+                gates.update(_normal_relative_volume_gate(
+                    indicators, direction, settings.normal_rvol_min,
+                ))
             try:
                 adx_value = float(indicators.get("adx"))
                 plus_di = float(indicators.get("plus_di"))
@@ -1139,16 +1105,6 @@ class SignalEngine:
                 np.isfinite(plus_di) and np.isfinite(minus_di)
                 and (plus_di > minus_di if direction == "LONG" else minus_di > plus_di)
             )
-            gates.update(normal_entry_filters(
-                indicators, direction,
-                adx_floor=settings.normal_adx_min,
-                rsi_long_max=settings.normal_rsi_long_max,
-                rsi_short_min=settings.normal_rsi_short_min,
-                atr_pct_min=settings.normal_atr_pct_min,
-                atr_pct_max=settings.normal_atr_pct_max,
-                max_extension_atr=settings.normal_max_extension_atr,
-                max_candle_atr=settings.normal_max_candle_atr,
-            ))
             failed = [name for name, passed in gates.items() if not passed]
             logger.info(
                 "NORMAL_GATE_DIAGNOSTICS pair=%s direction=%s strategy=%s "

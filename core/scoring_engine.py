@@ -1,4 +1,4 @@
-"""Universal 10-point scoring system with independent engine weights."""
+"""Indicator scoring for independent signal engines; component maxima are explicit."""
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 import math
@@ -101,15 +101,12 @@ class ScoringEngine:
     """Normal engine default weights (sum = 10)."""
 
     NORMAL_WEIGHTS = {
-        # Nine non-MACD quality dimensions retain the original 10-point scale.
-        "ema_trend": 10.0 / 9.0,
-        "vwap": 10.0 / 9.0,
-        "adx": 10.0 / 9.0,
-        "rsi": 10.0 / 9.0,
-        "rvol": 10.0 / 9.0,
-        "atr": 10.0 / 9.0,
-        "candle": 10.0 / 9.0,
-        "structure": 10.0 / 9.0,
+        # Normal's five scored indicators total 8.5 points.
+        "ema_trend": 2.0,
+        "vwap": 2.0,
+        "rsi": 1.5,
+        "adx": 2.0,
+        "atr": 1.0,
     }
 
     MOMENTUM_WEIGHTS = {
@@ -126,7 +123,7 @@ class ScoringEngine:
     }
 
     def score_normal(self, indicators: Dict[str, Any], direction: str) -> ScoreResult:
-        """Score only the six indicators specified for the Normal engine."""
+        """Score the five Normal indicators; maximum score is 8.5 points."""
         _validate_direction(direction)
         values = _validated_indicators(indicators)
         is_long = direction == "LONG"
@@ -167,7 +164,7 @@ class ScoringEngine:
             "ATR valid" if atr_ok else "ATR unavailable")
 
         total = round(sum(item.points for item in components), 2)
-        return ScoreResult(total=total, components=components, direction=direction)
+        return ScoreResult(total=total, max_total=8.5, components=components, direction=direction)
 
     def score_momentum_explosion(self, indicators: Dict[str, Any], direction: str) -> ScoreResult:
         """Score early momentum using volatility, trend and oscillator indicators only."""
