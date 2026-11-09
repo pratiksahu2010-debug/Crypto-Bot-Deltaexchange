@@ -151,11 +151,11 @@ def test_requires_ignition_evidence():
 def test_tracker_returns_best_candidate_and_ignores_stale_bucket():
     t = 1_800_000_000_000 - (1_800_000_000_000 % INTERVAL)
     now = t + 90_000
-    tracker = LiveTracker(LiveConfig(sessions=()))
+    tracker = LiveTracker(LiveConfig(sessions=(), impulse_pace=1.8))
     ctx = ctx_for(t, now)
+    tracker._ctx["B-TEST_USDT"] = ctx
     c = 100.0 + 1.5 * ctx.atr
     candle = forming(t, 100.0, c + 0.01, 99.98, c, 600.0)
-    tracker.cfg = LiveConfig(sessions=(), impulse_pace=1.8)
     found = tracker.evaluate("B-TEST_USDT", candle, INTERVAL, now, lambda: make_arrays(t))
     assert [r["state"] for r in found] == ["LIVE_EXPLOSION"]
     # An event for a bucket that is no longer forming must be ignored.
