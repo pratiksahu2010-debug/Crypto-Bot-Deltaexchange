@@ -17,7 +17,7 @@ def test_momentum_allowlist_has_100_unique_listed_replacements():
     assert len(symbols) == 100
     assert len(set(symbols)) == 100
     assert not {"B-BONK_USDT", "B-KORU_USDT", "B-LITE_USDT"}.intersection(symbols)
-    assert {"B-FARTCOIN_USDT", "B-ORDI_USDT", "B-JASMY_USDT"}.issubset(symbols)
+    assert {"B-1000BONK_USDT", "B-FARTCOIN_USDT", "B-ORDI_USDT"}.issubset(symbols)
 
 
 def test_websocket_tracks_accepted_updates_per_symbol_and_timeframe(monkeypatch):
