@@ -137,7 +137,7 @@ def test_fixed_universe_never_adds_dynamic_symbols_or_stablecoins(monkeypatch):
     asyncio.run(run())
 
 
-def test_both_engines_use_the_same_fixed_120_coin_allowlist():
+def test_normal_40_and_momentum_100_fixed_allowlists():
     from pathlib import Path
     import yaml
 
@@ -145,7 +145,9 @@ def test_both_engines_use_the_same_fixed_120_coin_allowlist():
     normal = yaml.safe_load((root / "config/normal_symbols.yaml").read_text())["symbols"]
     momentum = yaml.safe_load((root / "config/momentum_symbols.yaml").read_text())["symbols"]
 
-    assert len(normal) == 120
-    assert len(set(normal)) == 120
-    assert momentum == normal
-    assert all(symbol.startswith("B-") and symbol.endswith("_USDT") for symbol in normal)
+    assert len(normal) == 40
+    assert len(set(normal)) == 40
+    assert len(momentum) == 100
+    assert len(set(momentum)) == 100
+    assert set(normal).issubset(set(momentum))
+    assert all(symbol.startswith("B-") and symbol.endswith("_USDT") for symbol in momentum)
