@@ -1377,7 +1377,7 @@ class SignalEngine:
             return
 
         if self.cooldowns[engine].is_cooling(pair, engine, direction):
-                self._log_candle_evaluation(
+            self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
                 failed=["cooldown"], strategy=strategy, score=result.total,
