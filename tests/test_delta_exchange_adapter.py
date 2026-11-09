@@ -244,3 +244,52 @@ async def test_symbol_manager_accepts_delta_usd_perpetual_under_internal_strateg
     assert manager.normal_symbols == ["B-BTC_USDT"]
     assert manager.momentum_symbols == ["B-BTC_USDT"]
     assert manager.display_name("B-BTC_USDT") == "BTC/USD"
+
+
+
+def test_fixed_symbol_allowlists_have_requested_sizes_and_normal_is_subset():
+    from pathlib import Path
+    import yaml
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "config/normal_symbols.yaml").open(encoding="utf-8") as stream:
+        normal = yaml.safe_load(stream)["symbols"]
+    with (root / "config/momentum_symbols.yaml").open(encoding="utf-8") as stream:
+        momentum = yaml.safe_load(stream)["symbols"]
+
+    assert len(normal) == 40
+    assert len(set(normal)) == 40
+    assert len(momentum) == 100
+    assert len(set(momentum)) == 100
+    assert set(normal).issubset(set(momentum))
+
+
+@pytest.mark.asyncio
+async def test_symbol_manager_enforces_configured_universe_limits(monkeypatch):
+    from config import settings
+    from exchange.symbol_manager import SymbolManager
+
+    class RestStub:
+        async def get_market_details(self):
+            return [
+                {
+                    "pair": f"B-{asset}_USDT", "symbol": f"{asset}USD",
+                    "target_currency_short_name": asset, "status": "active",
+                    "quote_currency": "USD",
+                }
+                for asset in ("BTC", "ETH", "SOL")
+            ]
+
+        async def get_ticker(self):
+            return []
+
+    manager = SymbolManager(RestStub())
+    configured = ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
+    monkeypatch.setattr(manager, "_load_yaml", lambda _path: configured)
+    monkeypatch.setattr(settings, "normal_symbol_limit", 2)
+    monkeypatch.setattr(settings, "momentum_symbol_limit", 3)
+
+    await manager.load_and_validate()
+
+    assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+    assert manager.momentum_symbols == configured
