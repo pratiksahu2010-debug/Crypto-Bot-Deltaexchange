@@ -101,10 +101,8 @@ async def init_db() -> None:
             missing = sorted(required - set(existing))
             if missing:
                 raise RuntimeError(f"Database schema check failed; missing tables: {missing}")
-            await conn.execute(text("DELETE FROM signals WHERE engine = 'signals'"))
-            await conn.execute(text("DELETE FROM watchlist WHERE engine = 'signals'"))
-            await conn.execute(text("DELETE FROM signal_dedup WHERE dedup_key LIKE 'signals:%'"))
-            await conn.execute(text("DROP TABLE IF EXISTS step_channel_state"))
+            # Startup must be non-destructive: persistent signals, deduplication,
+            # watchlists and legacy state are retained across deploys/restarts.
         logger.info("DATABASE_READY dialect=%s connectivity=ok schema=ok tables=%d", engine.dialect.name, len(required))
     except Exception:
         logger.exception("DATABASE_STARTUP_CHECK_FAILED connectivity_or_schema=true")

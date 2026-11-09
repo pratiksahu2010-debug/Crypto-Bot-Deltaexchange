@@ -816,14 +816,16 @@ def test_confirmed_swing_levels_ignore_unconfirmed_last_two_bars():
     assert swing_low == 5.0
 
 
-def test_risk_calculator_uses_configured_round_trip_cost():
+def test_risk_calculator_ignores_legacy_execution_cost_settings():
     from core.risk_calculator import calculate_risk
 
     no_cost = calculate_risk(100, 2, "LONG", swing_low=98.5, cost_bps=0)
-    high_cost = calculate_risk(100, 2, "LONG", swing_low=98.5, cost_bps=100)
-    assert no_cost and high_cost
-    assert high_cost.rr1 < no_cost.rr1
-    assert calculate_risk(100, 2, "LONG", cost_bps=-1) is None
+    high_cost = calculate_risk(
+        100, 2, "LONG", swing_low=98.5, cost_bps=100, min_net_rr=10,
+    )
+    assert no_cost is not None and high_cost is not None
+    assert high_cost == no_cost
+    assert no_cost.rr1 == 2.0
 
 
 def test_candle_buffer_rejects_nonfinite_and_inconsistent_ohlc():
@@ -962,13 +964,13 @@ def test_runtime_config_rejects_non_finite_safety_thresholds(monkeypatch):
         validate_runtime_config()
 
 
-def test_runtime_config_rejects_invalid_execution_quality_thresholds(monkeypatch):
-    import pytest
+def test_runtime_config_ignores_deprecated_execution_quality_settings(monkeypatch):
     from app.lifespan import validate_runtime_config
 
+    monkeypatch.setattr("config.settings.futures_round_trip_cost_bps", -1.0)
     monkeypatch.setattr("config.settings.futures_max_spread_bps", 0.0)
-    with pytest.raises(ValueError, match="FUTURES_MAX_SPREAD_BPS must be positive"):
-        validate_runtime_config()
+    monkeypatch.setattr("config.settings.futures_min_side_depth_usdt", -1.0)
+    validate_runtime_config()
 
 
 def test_runtime_config_rejects_out_of_range_orb_adx(monkeypatch):

@@ -9,7 +9,6 @@ Signal-only crypto futures scanner for **Delta Exchange India**. It publishes LO
 - Product discovery: `GET /v2/products` filtered to live `perpetual_futures`
 - Tickers: `GET /v2/tickers?contract_types=perpetual_futures`
 - Candles: `GET /v2/history/candles`
-- Order book: `GET /v2/l2orderbook/{symbol}`
 - Only public market-data endpoints are used. No Delta API key or secret is needed.
 - The bot retains its historical internal strategy keys (for example `B-BTC_USDT`) so persisted signals, Telegram formatting, deduplication and strategy state do not change. The exchange adapter maps these keys to discovered Delta product symbols (for example `BTCUSD`). It does not blindly replace suffixes.
 - Only live, operational perpetual futures are eligible. Spot, options, expired, upcoming and disrupted contracts are excluded.
@@ -41,7 +40,7 @@ Signal-only crypto futures scanner for **Delta Exchange India**. It publishes LO
 ### Shared signal and risk behavior
 
 - Existing 10-point scoring, filters, cooldowns, completed-candle confirmation, pending retests, duplicate protection and ATR-based SL/TP1/TP2/TP3 remain.
-- Telegram alerts continue to enforce the existing net TP1 reward/risk requirement.
+- ATR-based stop-loss and target levels use gross structural reward/risk; fees, spread and slippage are not signal rejection gates.
 - Existing signal history, SQLite local / PostgreSQL production persistence, transactional claims, Telegram outbox and delivery worker remain.
 - No order placement, trade execution, account access or private WebSocket channels are included.
 
@@ -52,7 +51,6 @@ Signal-only crypto futures scanner for **Delta Exchange India**. It publishes LO
 - Candle timestamps are normalized to UTC milliseconds. Malformed, duplicate, misaligned, unfinished, stale and out-of-window candles are rejected.
 - The public WebSocket uses Delta's native `candlestick_<resolution>` subscription protocol. It only feeds forming-candle telemetry and LTP cache; it does not replace REST closed-candle confirmation.
 - Delta WebSocket timestamps are microseconds and are normalized before freshness checks.
-- The order-book adapter converts contract sizes to quote notional using the product's `contract_value` and `contract_unit_currency`; if that conversion is not explicit, optional depth remains unavailable rather than guessed.
 - REST fallback remains available when WebSocket disconnects.
 
 ## Health and keepalive

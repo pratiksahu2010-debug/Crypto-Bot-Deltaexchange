@@ -2,8 +2,6 @@
 from typing import Optional
 from dataclasses import dataclass
 import math
-from config import settings
-
 @dataclass
 class RiskLevels:
     entry: float; entry_zone_low: float; entry_zone_high: float
@@ -19,14 +17,12 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
         atr = float(atr)
         atr_mult_sl = float(atr_mult_sl)
         reward_multipliers = tuple(float(x) for x in (atr_mult_tp1, atr_mult_tp2, atr_mult_tp3))
-        min_net_rr = float(min_net_rr)
     except (TypeError, ValueError, OverflowError):
         return None
     if (
         direction not in ("LONG", "SHORT")
         or not all(math.isfinite(x) for x in (price, atr, atr_mult_sl, *reward_multipliers))
         or price <= 0 or atr <= 0 or atr / price >= 0.25 or atr_mult_sl <= 0
-        or not math.isfinite(min_net_rr) or min_net_rr < 0
         or any(x <= 0 for x in reward_multipliers)
         or not (reward_multipliers[0] < reward_multipliers[1] < reward_multipliers[2])
     ):
@@ -59,31 +55,10 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
         or zone[0] >= zone[1]
     ):
         return None
-    # Configurable round-trip fee/slippage allowance in basis points.
-    # Keep gross target levels intact for display; use net reward for validation.
-    configured_bps = settings.futures_round_trip_cost_bps if cost_bps is None else cost_bps
-    try:
-        configured_bps = float(configured_bps)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if configured_bps < 0 or not math.isfinite(configured_bps):
-        return None
-    cost_per_unit = price * configured_bps / 10_000.0
-    # When a minimum NET R multiple is requested, move the first target far
-    # enough to still deliver it after estimated round-trip fees/slippage.
-    # Keep later targets strictly beyond the preceding target.
-    if min_net_rr > 0:
-        distances = [abs(target - price) for target in targets]
-        distances[0] = max(distances[0], min_net_rr * risk + cost_per_unit)
-        for idx in range(1, len(distances)):
-            distances[idx] = max(distances[idx], distances[idx - 1] + 0.5 * risk)
-        targets = [
-            price + distance if is_long else price - distance
-            for distance in distances
-        ]
-        if not all(math.isfinite(value) and value > 0 for value in targets):
-            return None
-    rrs=[max(0.0, abs(t-price)-cost_per_unit)/risk for t in targets]
+    # Legacy cost_bps/min_net_rr arguments remain accepted for API compatibility,
+    # but are intentionally ignored. Signal qualification and targets are gross
+    # structural ATR calculations; fees, spread and slippage are not gates.
+    rrs=[abs(t-price)/risk for t in targets]
     return RiskLevels(round(price,8),round(zone[0],8),round(zone[1],8),round(sl,8),
         round(targets[0],8),round(targets[1],8),round(targets[2],8),round(risk/price*100,4),
         round(rrs[0],2),round(rrs[1],2),round(rrs[2],2),round(sl,8))

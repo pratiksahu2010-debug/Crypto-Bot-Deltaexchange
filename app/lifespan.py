@@ -84,9 +84,6 @@ def validate_runtime_config() -> None:
         "MOMENTUM_ADX_MIN": settings.momentum_adx_explosion,
         "NORMAL_MIN_24H_TURNOVER_USDT": settings.normal_min_24h_turnover_usdt,
         "MOMENTUM_MIN_24H_TURNOVER_USDT": settings.momentum_min_24h_turnover_usdt,
-        "FUTURES_ROUND_TRIP_COST_BPS": settings.futures_round_trip_cost_bps,
-        "FUTURES_MAX_SPREAD_BPS": settings.futures_max_spread_bps,
-        "FUTURES_MIN_SIDE_DEPTH_USDT": settings.futures_min_side_depth_usdt,
         "ORB_MIN_RVOL": settings.orb_min_rvol,
         "ORB_ADX_MIN": settings.orb_adx_min,
         "ORB_MAX_EXTENSION_ATR": settings.orb_max_extension_atr,
@@ -123,12 +120,6 @@ def validate_runtime_config() -> None:
         raise ValueError("NORMAL_ADX_MIN must be between 0 and 100")
     if not 0.0 <= settings.momentum_adx_explosion <= 100.0:
         raise ValueError("MOMENTUM_ADX_MIN must be between 0 and 100")
-    if settings.futures_round_trip_cost_bps < 0:
-        raise ValueError("FUTURES_ROUND_TRIP_COST_BPS cannot be negative")
-    if settings.futures_max_spread_bps <= 0:
-        raise ValueError("FUTURES_MAX_SPREAD_BPS must be positive")
-    if settings.futures_min_side_depth_usdt < 0:
-        raise ValueError("FUTURES_MIN_SIDE_DEPTH_USDT cannot be negative")
     if settings.orb_min_rvol <= 0:
         raise ValueError("ORB_MIN_RVOL must be positive")
     if not 0.0 <= settings.orb_adx_min <= 100.0:
