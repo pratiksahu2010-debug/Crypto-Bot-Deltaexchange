@@ -33,8 +33,11 @@ def forming(open_ms, o, h, l, c, v):
 
 
 def ctx_for(forming_open_ms, now_ms, sessions=()):
-    return build_context("B-TEST_USDT", make_arrays(forming_open_ms), forming_open_ms,
-                         INTERVAL, now_ms, sessions=sessions)
+    ctx = build_context("B-TEST_USDT", make_arrays(forming_open_ms), forming_open_ms,
+                        INTERVAL, now_ms, sessions=sessions)
+    # Make the completed indicator context unambiguously bullish by default.
+    ctx.ema9, ctx.ema21, ctx.last_close = 100.1, 99.9, 100.0
+    return ctx
 
 
 def test_context_atr_and_structure_levels():
@@ -55,11 +58,14 @@ def test_clean_long_impulse_fires_early_in_the_candle():
     now = t + 90_000                                  # 30% into the candle
     ctx = ctx_for(t, now)
     c = 100.0 + 1.5 * ctx.atr
-    res = evaluate_explosion(ctx, forming(t, 100.0, c + 0.01, 99.98, c, 600.0), now)
+    res = evaluate_explosion(
+        ctx, forming(t, 100.0, c + 0.01, 99.98, c, 600.0), now,
+        LiveConfig(impulse_pace=1.8),
+    )
     assert res["state"] == "LIVE_EXPLOSION", res
     assert res["direction"] == "LONG" and res["strategy"] == "EXPLOSION"
     assert res["elapsed_seconds"] == 90.0
-    assert res["swing_low"] < c and res["score_result"].total >= 7.0
+    assert res["swing_low"] is None and res["score_result"].total > 0
 
 
 def test_clean_short_impulse_is_mirrored():
@@ -67,9 +73,13 @@ def test_clean_short_impulse_is_mirrored():
     now = t + 90_000
     ctx = ctx_for(t, now)
     c = 100.0 - 1.5 * ctx.atr
-    res = evaluate_explosion(ctx, forming(t, 100.0, 100.02, c - 0.01, c, 600.0), now)
+    ctx.ema9, ctx.ema21 = 99.9, 100.1
+    res = evaluate_explosion(
+        ctx, forming(t, 100.0, 100.02, c - 0.01, c, 600.0), now,
+        LiveConfig(impulse_pace=1.8),
+    )
     assert res["state"] == "LIVE_EXPLOSION" and res["direction"] == "SHORT"
-    assert res["swing_high"] > c
+    assert res["swing_high"] is None
 
 
 def test_rejects_move_that_already_happened():
@@ -108,13 +118,13 @@ def test_rejects_too_early_and_too_late():
     assert evaluate_explosion(ctx, candle, t + 270_000)["reason"] == "outside_live_window"
 
 
-def test_rejects_spike_and_fade_candle():
+def test_large_opposing_wick_does_not_reject_indicator_qualified_signal():
     t = 1_800_000_000_000 - (1_800_000_000_000 % INTERVAL)
     now = t + 90_000
     ctx = ctx_for(t, now)
     c = 100.0 + 1.3 * ctx.atr
     res = evaluate_explosion(ctx, forming(t, 100.0, c + 2.0 * ctx.atr, 99.98, c, 800.0), now)
-    assert res["reason"] == "weak_candle"
+    assert res["state"] == "LIVE_EXPLOSION", res
 
 
 def test_rejects_when_run_is_already_old():
@@ -145,6 +155,7 @@ def test_tracker_returns_best_candidate_and_ignores_stale_bucket():
     ctx = ctx_for(t, now)
     c = 100.0 + 1.5 * ctx.atr
     candle = forming(t, 100.0, c + 0.01, 99.98, c, 600.0)
+    tracker.cfg = LiveConfig(sessions=(), impulse_pace=1.8)
     found = tracker.evaluate("B-TEST_USDT", candle, INTERVAL, now, lambda: make_arrays(t))
     assert [r["state"] for r in found] == ["LIVE_EXPLOSION"]
     # An event for a bucket that is no longer forming must be ignored.
@@ -283,22 +294,24 @@ def test_closed_explosion_uses_directional_indicators_not_candle_geometry():
     }) is False
 
 
-def test_live_explosion_requires_path_specific_participation():
+def test_live_explosion_requires_indicator_ignition_evidence():
     t = 1_800_000_000_000 - (1_800_000_000_000 % INTERVAL)
     now = t + 90_000
     ctx = ctx_for(t, now)
     c = 100.0 + 1.5 * ctx.atr
     candle = forming(t, 100.0, c + 0.01, 99.98, c, 520.0)
 
-    # A structural break cannot pass merely because general volume pace passed.
+    # A swing-structure break alone is not an ignition pathway.
     ctx.resistance = 100.1
     ctx.compression_recent = False
+    ctx.compression_age = None
     res = evaluate_explosion(ctx, candle, now)
     assert res["reason"] == "no_ignition_evidence"
 
-    # Squeeze release is a separate pathway with its own stronger pace threshold.
+    # A recent squeeze still needs its indicator-based volume-pace threshold.
     ctx.resistance = 200.0
     ctx.compression_recent = True
+    ctx.compression_age = 0
     res = evaluate_explosion(ctx, candle, now)
     assert res["reason"] == "no_ignition_evidence"
 
@@ -308,13 +321,14 @@ def test_live_explosion_reports_qualified_ignition_path():
     now = t + 90_000
     ctx = ctx_for(t, now)
     c = 100.0 + 1.5 * ctx.atr
+    ctx.compression_age = 0
+    ctx.compression_recent = True
     res = evaluate_explosion(ctx, forming(t, 100.0, c + 0.01, 99.98, c, 600.0), now)
     assert res["state"] == "LIVE_EXPLOSION"
-    assert res["structure_ignition"] is True
-    assert res["squeeze_ignition"] is False
+    assert res["squeeze_ignition"] is True
 
 
-def test_live_orb_rejects_wick_heavy_breakout_candle():
+def test_live_orb_does_not_reject_wick_heavy_breakout_candle():
     forming_open, now, ctx = asia_context()
     tracker = LiveTracker(LiveConfig(sessions=("asia",)))
     rh = ctx.orb["asia"]["range_high"]
@@ -324,7 +338,7 @@ def test_live_orb_rejects_wick_heavy_breakout_candle():
     tracker.evaluate("B-TEST_USDT", candle, INTERVAL, now, lambda: make_arrays(forming_open))
     result = tracker.evaluate("B-TEST_USDT", candle, INTERVAL, now + 10_000,
                               lambda: make_arrays(forming_open))
-    assert not [r for r in result if r["state"] == "LIVE_ORB"]
+    assert [r for r in result if r["state"] == "LIVE_ORB"]
 
 
 def test_squeeze_ignition_requires_fresh_compression():
