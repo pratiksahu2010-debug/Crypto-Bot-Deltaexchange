@@ -134,11 +134,11 @@ def test_normal_relative_volume_gate_uses_strength_without_direction():
             "relative_volume": True,
         }
 
-    # Low RVOL remains a single failed volume threshold, not a directional veto.
+    # The configured 1.2 threshold passes 1.39; direction proxy is irrelevant.
     weak_volume = _normal_relative_volume_gate(
         {"rvol": 1.39, "directional_volume_proxy_ok": True}, "LONG", 1.2
     )
-    assert weak_volume == {"relative_volume": False}
+    assert weak_volume == {"relative_volume": True}
 
     missing_volume = _normal_relative_volume_gate(
         {"rvol": None, "directional_volume_proxy_ok": False}, "SHORT", 1.3

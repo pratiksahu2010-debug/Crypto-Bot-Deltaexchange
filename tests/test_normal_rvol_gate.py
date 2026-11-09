@@ -16,8 +16,9 @@ def test_normal_low_rvol_remains_watchlist_eligible():
         "rvol": 1.39,
         "directional_volume_proxy_ok": True,
     }
+    # 1.39 clears the explicitly configured 1.2 threshold.
     assert _normal_relative_volume_gate(indicators, "SHORT", 1.2) == {
-        "relative_volume": False,
+        "relative_volume": True,
     }
 
 

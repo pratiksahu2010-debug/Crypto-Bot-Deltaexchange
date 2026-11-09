@@ -9,10 +9,11 @@ def test_runtime_config_accepts_current_5m_15m_defaults():
     validate_runtime_config()
 
 
-def test_runtime_config_rejects_non_higher_timeframe_context(monkeypatch):
+def test_legacy_confirmation_timeframe_is_not_a_startup_dependency(monkeypatch):
+    # The setting is retained for backward-compatible .env files, but no
+    # strategy or readiness check requires a higher-timeframe feed.
     monkeypatch.setattr(settings, "candle_confirm_tf", settings.candle_primary_tf)
-    with pytest.raises(ValueError, match="CANDLE_CONFIRM_TF"):
-        validate_runtime_config()
+    validate_runtime_config()
 
 
 def test_runtime_config_rejects_nonpositive_primary_interval(monkeypatch):

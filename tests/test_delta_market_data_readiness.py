@@ -104,7 +104,7 @@ async def test_delta_rest_candles_are_completed_aligned_and_report_freshness(mon
 
 
 @pytest.mark.asyncio
-async def test_health_rejects_incomplete_universe_and_missing_per_symbol_candles(monkeypatch):
+async def test_health_reports_missing_per_symbol_candles_without_exact_universe_gate(monkeypatch):
     from app.health import health
     from config import settings
 
@@ -140,7 +140,10 @@ async def test_health_rejects_incomplete_universe_and_missing_per_symbol_candles
     response = await health(request)
     assert response.status_code == 503
     body = json.loads(response.body)
-    assert "momentum_universe_incomplete" in body["reasons"]
+    # A partial but non-empty configured universe is not a service-readiness
+    # failure; missing fresh primary candles still correctly degrades health.
+    assert "momentum_universe_incomplete" not in body["reasons"]
+    assert "momentum_universe_empty" not in body["reasons"]
     assert "per_symbol_candle_data_not_ready" in body["reasons"]
 
 
@@ -202,7 +205,7 @@ async def test_telegram_outbox_duplicate_enqueue_and_delivery_are_idempotent(tmp
 
 
 @pytest.mark.asyncio
-async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_15m_data(monkeypatch):
+async def test_health_is_ready_with_fresh_primary_candles_without_15m_context(monkeypatch):
     from app.health import health
     from config import settings
 
@@ -255,10 +258,11 @@ async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_
     )))
     response = await health(request)
     assert response["ok"] is True
-    assert response["market_data_freshness"]["expected"] == 4
-    assert response["market_data_freshness"]["fresh"] == 4
+    # Two unique symbols are monitored once each on the primary 5m timeframe.
+    assert response["market_data_freshness"]["expected"] == 2
+    assert response["market_data_freshness"]["fresh"] == 2
     assert response["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["status"] == "fresh"
-    assert response["market_data_freshness"]["feeds"]["B-ETH_USDT"]["15m"]["last_completed_close_ms"] == now_ms - 600_000
+    assert "15m" not in response["market_data_freshness"]["feeds"]["B-ETH_USDT"]
     # WebSocket loss is diagnostic only because REST closed-candle data is authoritative.
     assert response["websocket"]["status"] == "reconnecting"
 
