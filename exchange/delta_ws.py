@@ -143,8 +143,21 @@ class DeltaFuturesStream:
                         f"channels={','.join(self._channels)}"
                     )
                     while self._running:
+                        heartbeat_reference_ms = (
+                            self._last_heartbeat_ms
+                            if self._last_heartbeat_ms is not None
+                            else connection_started_ms
+                        )
+                        heartbeat_age_seconds = (
+                            int(time.time() * 1000) - heartbeat_reference_ms
+                        ) / 1000.0
+                        remaining_heartbeat_seconds = max(
+                            0.0, 35.0 - heartbeat_age_seconds
+                        )
                         try:
-                            raw = await asyncio.wait_for(connection.recv(), timeout=35.0)
+                            raw = await asyncio.wait_for(
+                                connection.recv(), timeout=remaining_heartbeat_seconds
+                            )
                         except asyncio.TimeoutError as exc:
                             raise ConnectionError("heartbeat_timeout_35s") from exc
                         try:
