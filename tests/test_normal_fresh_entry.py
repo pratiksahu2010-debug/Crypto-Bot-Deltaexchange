@@ -143,7 +143,7 @@ def test_normal_supplementary_filter_only_requires_valid_atr():
     assert normal_entry_filters({}, "SHORT") == {"atr_valid": False}
 
 
-def test_normal_engine_uses_the_requested_six_indicator_gates():
+def test_normal_engine_uses_five_indicator_gates():
     from core.engine import _normal_threshold_gates
 
     indicators = {
