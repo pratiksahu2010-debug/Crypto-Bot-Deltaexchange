@@ -53,7 +53,7 @@ services:
       - key: NORMAL_SYMBOL_LIMIT
         value: "40"
       - key: MOMENTUM_SYMBOL_LIMIT
-        value: "80"
+        value: "100"
       - key: NORMAL_MIN_24H_TURNOVER_USDT
         value: "1000000"
       - key: MOMENTUM_MIN_24H_TURNOVER_USDT
