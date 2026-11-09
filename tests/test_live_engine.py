@@ -23,7 +23,7 @@ def arrays(forming_open=T0, n=100):
     # Build a mild completed-candle uptrend so live direction comes from EMA9/21,
     # not from the forming candle's colour.
     closes[-25:] = np.linspace(99.5, 100.0, 25)
-    opens = np.full(n, 100.0)
+    opens = closes - 0.01
     return {"time": times.astype(np.int64), "open": opens,
             "high": np.maximum(opens, closes) + 0.1, "low": np.minimum(opens, closes) - 0.1,
             "close": closes, "volume": np.full(n, 1000.0)}
@@ -90,7 +90,7 @@ def harness(monkeypatch):
 
 def impulse_candle(atr_multiple=1.5, atr=0.3):
     c = 100.0 + atr_multiple * atr
-    return {"time": T0, "open": 100.0, "high": c + 0.01, "low": 99.98, "close": c, "volume": 600.0}
+    return {"time": T0, "open": 100.0, "high": c + 0.01, "low": 99.98, "close": c, "volume": 900.0}
 
 
 async def run_candle(eng, candle):
