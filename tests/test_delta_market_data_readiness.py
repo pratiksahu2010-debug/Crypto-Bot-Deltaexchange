@@ -251,6 +251,8 @@ async def test_health_is_ready_only_after_every_enabled_symbol_has_fresh_5m_and_
     assert response["ok"] is True
     assert response["market_data_freshness"]["expected"] == 4
     assert response["market_data_freshness"]["fresh"] == 4
+    assert response["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["status"] == "fresh"
+    assert response["market_data_freshness"]["feeds"]["B-ETH_USDT"]["15m"]["last_completed_close_ms"] is None
     # WebSocket loss is diagnostic only because REST closed-candle data is authoritative.
     assert response["websocket"]["status"] == "reconnecting"
 
