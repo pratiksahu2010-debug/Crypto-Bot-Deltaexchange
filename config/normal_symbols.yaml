@@ -1,15 +1,45 @@
-# Fixed, liquidity-led Delta Exchange India crypto perpetual allowlist.
-# Selected from the exchange's live USD-perpetual universe and recent turnover/
-# liquidity data. Membership and order do not rotate with daily volume changes.
-# Internal B-<ASSET>_USDT keys are mapped to actual Delta <ASSET>USD products.
-# Only live, operational Delta crypto perpetuals are scanned; no substitutions.
+# Fixed Delta Exchange India crypto perpetual allowlist.
+# Membership and order are static; 24h turnover is telemetry, not a rotation rule.
+# Internal B-<ASSET>_USDT keys map to actual Delta <ASSET>USD products.
+# Missing or inactive contracts are skipped; the bot never substitutes symbols.
 symbols:
   - B-BTC_USDT
   - B-ETH_USDT
   - B-SOL_USDT
+  - B-XRP_USDT
+  - B-BNB_USDT
+  - B-AVAX_USDT
+  - B-BCH_USDT
+  - B-LTC_USDT
+  - B-DOGE_USDT
+  - B-ADA_USDT
+  - B-LINK_USDT
+  - B-DOT_USDT
+  - B-UNI_USDT
+  - B-NEAR_USDT
+  - B-INJ_USDT
+  - B-SUI_USDT
+  - B-WLD_USDT
+  - B-WIF_USDT
+  - B-SEI_USDT
+  - B-TIA_USDT
+  - B-ARB_USDT
+  - B-ZEC_USDT
   - B-AKE_USDT
   - B-JCT_USDT
   - B-AIOT_USDT
   - B-AIN_USDT
-  - B-XRP_USDT
-  - B-ZEC_USDT
+  - B-AAVE_USDT
+  - B-FIL_USDT
+  - B-OP_USDT
+  - B-ENA_USDT
+  - B-JUP_USDT
+  - B-HYPE_USDT
+  - B-TAO_USDT
+  - B-XLM_USDT
+  - B-XMR_USDT
+  - B-TRX_USDT
+  - B-ETC_USDT
+  - B-MANA_USDT
+  - B-RUNE_USDT
+  - B-PENDLE_USDT
