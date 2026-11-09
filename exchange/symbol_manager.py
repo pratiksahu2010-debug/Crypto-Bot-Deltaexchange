@@ -246,7 +246,7 @@ class SymbolManager:
             # Fixed allowlist membership: never fill unavailable or illiquid
             # slots with unrelated exchange markets. Delta Exchange active-contract
             # validation and the engine-specific turnover floor remain in force.
-            configured = list(preferences.keys())
+            configured = list(preferences.keys())[:max(0, int(limit))]
             available_by_key = {self._norm(pair): pair for pair in self.valid_pairs}
             selected: List[str] = []
             missing: List[str] = []
