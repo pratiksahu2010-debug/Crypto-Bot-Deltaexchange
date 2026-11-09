@@ -381,3 +381,19 @@ def test_websocket_heartbeat_updates_heartbeat_clock(monkeypatch):
     stream = DeltaFuturesStream(CandleBuilder(), rest_client=object())
     stream._handle_message({"type": "heartbeat"})
     assert stream._last_heartbeat_ms == now_ms
+
+
+def test_replacement_symbols_map_to_delta_canonical_usd_products():
+    from exchange.delta_rest import DeltaExchangeRest
+
+    for product_symbol, asset in (
+        ("1000BONKUSD", "1000BONK"),
+        ("FARTCOINUSD", "FARTCOIN"),
+        ("ORDIUSD", "ORDI"),
+    ):
+        product = {
+            "symbol": product_symbol,
+            "quoting_asset": {"symbol": "USD"},
+        }
+        assert DeltaExchangeRest._asset_symbol(product) == asset
+        assert DeltaExchangeRest._canonical_for_asset(asset) == f"B-{asset}_USDT"
