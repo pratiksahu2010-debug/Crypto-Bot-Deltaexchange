@@ -86,26 +86,37 @@ def _market_data_freshness(request: Request) -> dict:
     expected = len(pairs) * len(intervals)
     fresh = 0
     issues = []
+    feed_details = {}
     for pair in sorted(pairs):
+        feed_details[pair] = {}
         for interval in intervals:
             item = (feed.get(pair) or {}).get(interval)
             observed = item.get("observed_at_ms") if isinstance(item, dict) else None
             age = (now_ms - int(observed)) / 1000.0 if observed is not None else None
             interval_seconds = parse_interval(interval).total_seconds()
             stale_after = max(interval_seconds * 3.0, interval_seconds + settings.max_signal_age_seconds)
+            status = item.get("status", "missing") if isinstance(item, dict) else "missing"
             healthy = (
                 isinstance(item, dict)
-                and item.get("status") == "fresh"
+                and status == "fresh"
                 and age is not None
                 and -60.0 <= age <= stale_after
             )
+            feed_details[pair][interval] = {
+                "status": status,
+                "observation_age_seconds": round(max(0.0, age), 1) if age is not None else None,
+                "candle_age_seconds": item.get("candle_age_seconds") if isinstance(item, dict) else None,
+                "last_completed_open_ms": item.get("last_completed_open_ms") if isinstance(item, dict) else None,
+                "last_completed_close_ms": item.get("last_completed_close_ms") if isinstance(item, dict) else None,
+                "error": item.get("error") if isinstance(item, dict) else "no_observation",
+            }
             if healthy:
                 fresh += 1
             else:
                 issues.append({
                     "pair": pair,
                     "timeframe": interval,
-                    "status": item.get("status", "missing") if isinstance(item, dict) else "missing",
+                    "status": status,
                     "age_seconds": round(max(0.0, age), 1) if age is not None else None,
                 })
     return {
@@ -114,6 +125,7 @@ def _market_data_freshness(request: Request) -> dict:
         "fresh": fresh,
         "missing_or_stale": expected - fresh,
         "issues": issues[:20],
+        "feeds": feed_details,
     }
 
 
