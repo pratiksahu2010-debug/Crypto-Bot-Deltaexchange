@@ -70,7 +70,7 @@ def _scan_freshness(state: dict, request: Request) -> tuple[dict, bool]:
 async def root() -> Dict[str, Any]:
     return {
         "service": "delta-india-signal-bot",
-        "version": "2.0",
+        "version": "3.0",
         "docs": "/docs",
         "health": "/health",
         "ping": "/ping",
