@@ -441,3 +441,60 @@ async def test_websocket_resubscribes_when_active_symbol_universe_changes():
     # Repeating the same active universe does not churn the socket.
     stream._connection = None
     assert await stream.update_symbols(["B-ETH_USDT", "B-BTC_USDT"]) is False
+
+
+@pytest.mark.asyncio
+async def test_primary_candle_freshness_uses_strictest_enabled_engine_age(monkeypatch):
+    from exchange.delta_rest import DeltaExchangeRest
+    from config import settings
+
+    now_ms = 1_800_000_000_000
+    monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    monkeypatch.setattr(settings, "max_signal_age_seconds", 120)
+    monkeypatch.setattr(settings, "candle_primary_tf", "5m")
+    rest = DeltaExchangeRest()
+    rest._canonical_to_delta["B-TEST_USDT"] = "TESTUSD"
+
+    # Last 5m candle closed 90 seconds ago: Momentum's 120s budget would pass,
+    # but Normal is enabled and has a 60s budget, so this shared feed is stale.
+    close_ms = now_ms - 90_000
+    open_ms = close_ms - 300_000
+    rows = [{"time": open_ms // 1000, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}]
+    async def get(url, params=None):
+        return {"success": True, "result": rows}
+    rest._get = get
+    result = await rest.get_candles("B-TEST_USDT", "5m", limit=1)
+    assert result == []
+    status = rest.get_candle_feed_status()["B-TEST_USDT"]["5m"]
+    assert status["status"] == "stale"
+    assert status["error"] == "stale_completed_candles"
+
+
+@pytest.mark.asyncio
+async def test_15m_context_allows_one_interval_plus_entry_age(monkeypatch):
+    from exchange.delta_rest import DeltaExchangeRest
+    from config import settings
+
+    now_ms = 1_800_000_000_000
+    monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", True)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    monkeypatch.setattr(settings, "max_signal_age_seconds", 120)
+    rest = DeltaExchangeRest()
+    rest._canonical_to_delta["B-TEST_USDT"] = "TESTUSD"
+
+    # Context candle closed 14 minutes ago: still a valid as-of 15m context.
+    close_ms = now_ms - 14 * 60_000
+    open_ms = close_ms - 900_000
+    rows = [{"time": open_ms // 1000, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 100}]
+    async def get(url, params=None):
+        return {"success": True, "result": rows}
+    rest._get = get
+    result = await rest.get_candles("B-TEST_USDT", "15m", limit=1)
+    assert len(result) == 1
+    status = rest.get_candle_feed_status()["B-TEST_USDT"]["15m"]
+    assert status["status"] == "fresh"
