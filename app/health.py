@@ -25,10 +25,6 @@ def _scan_freshness(state: dict, request: Request) -> tuple[dict, bool]:
         + settings.max_signal_age_seconds,
     )
     now = datetime.now(timezone.utc)
-    startup = getattr(request.app.state, "start_time", None)
-    if startup is not None and startup.tzinfo is None:
-        startup = startup.replace(tzinfo=timezone.utc)
-    startup_age = max(0.0, (now - startup).total_seconds()) if startup else 0.0
 
     freshness = {}
     any_stale = False
