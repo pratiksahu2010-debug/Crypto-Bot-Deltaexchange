@@ -1,0 +1,70 @@
+services:
+  - type: web
+    name: delta-india-signal-bot
+    runtime: python
+    plan: free
+    # Keep one service instance initially; startCommand uses one Uvicorn worker.
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+    # Liveness only: DB readiness failures must not mark the process dead.
+    healthCheckPath: /ping
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: DELTA_REST_BASE
+        value: https://api.india.delta.exchange
+      - key: DELTA_WS_URL
+        value: wss://public-socket.india.delta.exchange
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SIGNAL_THRESHOLD
+        value: "7.0"
+      - key: CANDLE_PRIMARY_TF
+        value: "5m"
+      - key: SIGNAL_ONLY
+        value: "true"
+      - key: ORDERS_ENABLED
+        value: "false"
+      - key: CANDLE_CONFIRM_TF
+        value: "15m"
+      - key: ENABLE_WEBSOCKET
+        value: "true"
+      - key: ENABLE_NORMAL_ENGINE
+        value: "true"
+      - key: ENABLE_MOMENTUM_ENGINE
+        value: "true"
+      # Forming-candle candidates remain shadow-only; the completed-candle scanner publishes alerts.
+      - key: LIVE_IGNITION_MODE
+        value: shadow
+      - key: ORB_ENABLED
+        value: "true"
+      - key: ORB_LONDON_ENABLED
+        value: "true"
+      - key: ORB_NEW_YORK_ENABLED
+        value: "true"
+      - key: ORB_MIN_RVOL
+        value: "1.30"
+      - key: ORB_MAX_EXTENSION_ATR
+        value: "0.80"
+      - key: ORB_ACTIVE_MINUTES
+        value: "180"
+      - key: NORMAL_SYMBOL_LIMIT
+        value: "40"
+      - key: MOMENTUM_SYMBOL_LIMIT
+        value: "80"
+      - key: NORMAL_MIN_24H_TURNOVER_USDT
+        value: "1000000"
+      - key: MOMENTUM_MIN_24H_TURNOVER_USDT
+        value: "500000"
+      - key: CANDLE_CLOSE_GRACE_SECONDS
+        value: "3"
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_IDS
+        sync: false
+      # Set to the Internal Database URL of a managed PostgreSQL instance.
+      # Production scanning stays disabled until connectivity and schema checks pass.
+      - key: DATABASE_URL
+        sync: false
