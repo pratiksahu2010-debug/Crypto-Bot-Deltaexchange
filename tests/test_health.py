@@ -132,12 +132,6 @@ async def test_production_health_degrades_when_telegram_delivery_is_unavailable(
                 delattr(app.state, "telegram")
         else:
             app.state.telegram = old_telegram
-        for attr, previous in (("rest", old_rest), ("symbol_mgr", old_symbols), ("websocket", old_websocket)):
-            if previous is None:
-                if hasattr(app.state, attr):
-                    delattr(app.state, attr)
-            else:
-                setattr(app.state, attr, previous)
 
 
 @pytest.mark.asyncio
@@ -199,6 +193,12 @@ async def test_production_health_accepts_configured_telegram_delivery(monkeypatc
                 delattr(app.state, "telegram")
         else:
             app.state.telegram = old_telegram
+        for attr, previous in (("rest", old_rest), ("symbol_mgr", old_symbols), ("websocket", old_websocket)):
+            if previous is None:
+                if hasattr(app.state, attr):
+                    delattr(app.state, attr)
+            else:
+                setattr(app.state, attr, previous)
 
 
 
