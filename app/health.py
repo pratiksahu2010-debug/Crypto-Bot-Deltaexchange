@@ -341,6 +341,8 @@ async def status(request: Request) -> Dict[str, Any]:
         "scan_errors_momentum": app_state.get("scan_errors_momentum", 0),
         "valid_symbols_normal": app_state.get("valid_symbols_normal", 0),
         "valid_symbols_momentum": app_state.get("valid_symbols_momentum", 0),
+        "expected_symbols_normal": settings.normal_symbol_limit,
+        "expected_symbols_momentum": settings.momentum_symbol_limit,
         "memory_mb": mem["memory_mb"],
         "database": app_state.get("database", "unknown"),
         "telegram": telegram_status,
