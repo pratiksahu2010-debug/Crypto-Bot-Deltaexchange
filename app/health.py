@@ -53,8 +53,9 @@ def _scan_freshness(state: dict, request: Request) -> tuple[dict, bool]:
             stale = age is None or age < -60.0 or age > stale_after
             status = "stale" if stale else "fresh"
         else:
-            stale = startup_age > stale_after
-            status = "stale" if stale else "waiting"
+            # A process with no completed scan is alive but not scanner-ready.
+            stale = True
+            status = "waiting"
 
         any_stale = any_stale or stale
         freshness[engine] = {
@@ -64,6 +65,67 @@ def _scan_freshness(state: dict, request: Request) -> tuple[dict, bool]:
             "stale_after_seconds": round(stale_after, 1),
         }
     return freshness, any_stale
+
+
+def _market_data_freshness(request: Request) -> dict:
+    """Check the last authoritative REST candle observation per active symbol/TF."""
+    rest = getattr(request.app.state, "rest", None)
+    symbols = getattr(request.app.state, "symbol_mgr", None)
+    getter = getattr(rest, "get_candle_feed_status", None)
+    if not callable(getter) or symbols is None:
+        return {"ready": False, "expected": 0, "fresh": 0, "missing_or_stale": 0, "issues": []}
+
+    pairs = set()
+    if settings.enable_normal_engine:
+        pairs.update(getattr(symbols, "normal_symbols", []) or [])
+    if settings.enable_momentum_engine:
+        pairs.update(getattr(symbols, "momentum_symbols", []) or [])
+    intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+    feed = getter() or {}
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    expected = len(pairs) * len(intervals)
+    fresh = 0
+    issues = []
+    for pair in sorted(pairs):
+        for interval in intervals:
+            item = (feed.get(pair) or {}).get(interval)
+            observed = item.get("observed_at_ms") if isinstance(item, dict) else None
+            age = (now_ms - int(observed)) / 1000.0 if observed is not None else None
+            interval_seconds = parse_interval(interval).total_seconds()
+            stale_after = max(interval_seconds * 3.0, interval_seconds + settings.max_signal_age_seconds)
+            healthy = (
+                isinstance(item, dict)
+                and item.get("status") == "fresh"
+                and age is not None
+                and -60.0 <= age <= stale_after
+            )
+            if healthy:
+                fresh += 1
+            else:
+                issues.append({
+                    "pair": pair,
+                    "timeframe": interval,
+                    "status": item.get("status", "missing") if isinstance(item, dict) else "missing",
+                    "age_seconds": round(max(0.0, age), 1) if age is not None else None,
+                })
+    return {
+        "ready": expected > 0 and fresh == expected,
+        "expected": expected,
+        "fresh": fresh,
+        "missing_or_stale": expected - fresh,
+        "issues": issues[:20],
+    }
+
+
+def _websocket_diagnostics(request: Request) -> dict:
+    websocket = getattr(request.app.state, "websocket", None)
+    if websocket is None:
+        return {"status": "unavailable", "reconnects": 0, "symbol_feed_age_seconds": {}}
+    return {
+        "status": websocket.status,
+        "reconnects": websocket.reconnect_count,
+        "symbol_feed_age_seconds": websocket.symbol_feed_age_seconds,
+    }
 
 
 @router.get("/")
@@ -94,6 +156,8 @@ async def health(request: Request):
         )
 
     scan_freshness, scan_cycle_stale = _scan_freshness(state or {}, request)
+    market_data = _market_data_freshness(request)
+    websocket = _websocket_diagnostics(request)
 
     if state is not None:
         database = state.get("database")
@@ -102,24 +166,43 @@ async def health(request: Request):
             or (settings.enable_momentum_engine and state.get("momentum_engine") == "paused_database_unavailable")
         )
         normal_symbols_missing = (
-            settings.enable_normal_engine and int(state.get("valid_symbols_normal") or 0) <= 0
+            settings.enable_normal_engine
+            and int(state.get("valid_symbols_normal") or 0) < settings.normal_symbol_limit
         )
         momentum_symbols_missing = (
-            settings.enable_momentum_engine and int(state.get("valid_symbols_momentum") or 0) <= 0
+            settings.enable_momentum_engine
+            and int(state.get("valid_symbols_momentum") or 0) < settings.momentum_symbol_limit
         )
         telegram_unavailable = settings.is_production and not telegram_delivery_ready
         scan_task_failed = (
             bool(state.get("scan_task_expected"))
             and state.get("scan_task_status") in ("failed", "stopped")
         )
+        scan_task_not_running = (
+            bool(state.get("scan_task_expected"))
+            and state.get("scan_task_status") != "running"
+        )
+        engine_not_running = (
+            (settings.enable_normal_engine and state.get("normal_engine") != "running")
+            or (settings.enable_momentum_engine and state.get("momentum_engine") != "running")
+        )
         retest_task_failed = (
             database != "unavailable"
             and state.get("retest_task_status") in ("failed", "stopped")
+        )
+        retest_task_not_running = (
+            database != "unavailable"
+            and state.get("retest_task_status") != "running"
         )
         delivery_task_failed = (
             bool(state.get("telegram_delivery_task_expected"))
             and state.get("telegram_delivery_task_status") in ("failed", "stopped")
         )
+        delivery_task_not_running = (
+            bool(state.get("telegram_delivery_task_expected"))
+            and state.get("telegram_delivery_task_status") != "running"
+        )
+        market_data_not_ready = not market_data["ready"]
         if (
             database == "unavailable"
             or database_paused
@@ -129,7 +212,12 @@ async def health(request: Request):
             or scan_task_failed
             or retest_task_failed
             or delivery_task_failed
+            or scan_task_not_running
+            or engine_not_running
+            or retest_task_not_running
+            or delivery_task_not_running
             or scan_cycle_stale
+            or market_data_not_ready
         ):
             reasons = []
             if database == "unavailable" or database_paused:
@@ -146,8 +234,18 @@ async def health(request: Request):
                 reasons.append("pending_retest_monitor_failed")
             if delivery_task_failed:
                 reasons.append("telegram_delivery_worker_failed")
+            if scan_task_not_running:
+                reasons.append("scan_loop_not_running")
+            if engine_not_running:
+                reasons.append("strategy_engine_not_running")
+            if retest_task_not_running:
+                reasons.append("pending_retest_monitor_not_running")
+            if delivery_task_not_running:
+                reasons.append("telegram_delivery_worker_not_running")
             if scan_cycle_stale:
-                reasons.append("scan_cycle_stale")
+                reasons.append("scan_cycle_not_fresh_or_not_started")
+            if market_data_not_ready:
+                reasons.append("per_symbol_candle_data_not_ready")
             return JSONResponse(
                 status_code=503,
                 content={
@@ -166,6 +264,10 @@ async def health(request: Request):
                     "telegram_delivery_task_status": state.get("telegram_delivery_task_status", "unknown"),
                     "telegram_delivery_task_error": state.get("telegram_delivery_task_error"),
                     "scan_freshness": scan_freshness,
+                    "market_data_freshness": market_data,
+                    "websocket": websocket,
+                    "expected_symbols_normal": settings.normal_symbol_limit,
+                    "expected_symbols_momentum": settings.momentum_symbol_limit,
                     "reasons": reasons,
                 },
             )
@@ -174,6 +276,10 @@ async def health(request: Request):
         "status": "healthy",
         "telegram_delivery_ready": telegram_delivery_ready,
         "scan_freshness": scan_freshness,
+        "market_data_freshness": market_data,
+        "websocket": websocket,
+        "expected_symbols_normal": settings.normal_symbol_limit,
+        "expected_symbols_momentum": settings.momentum_symbol_limit,
     }
 
 
