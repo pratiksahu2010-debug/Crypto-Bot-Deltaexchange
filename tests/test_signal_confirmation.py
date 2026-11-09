@@ -26,5 +26,4 @@ def test_two_risk_reward_and_opposing_pivot_room_do_not_reject_signals():
 
 
 def test_normal_engine_does_not_use_macd_as_a_required_indicator():
-    normal_section = ENGINE.split('if engine == "normal":', 1)[1].split("else:", 1)[0]
-    assert 'macd(' not in normal_section
+    assert 'macd_res = macd(close) if engine == "momentum" else None' in ENGINE
