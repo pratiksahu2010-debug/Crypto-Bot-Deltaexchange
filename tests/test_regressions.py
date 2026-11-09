@@ -87,12 +87,12 @@ def test_normal_and_momentum_candle_cursors_are_independent():
     assert engine.normal_scoring is not engine.momentum_scoring
 
 
-def test_dynamic_symbol_universe_uses_ticker_liquidity_and_active_status(monkeypatch):
+def test_fixed_symbol_universe_ignores_turnover_but_requires_active_status(monkeypatch):
     import asyncio
     from exchange.symbol_manager import SymbolManager
 
-    # Static order is retained, but candidates below the engine turnover floor
-    # are excluded. LOW is intentionally present only in this fixture.
+    # Static allowlist order is retained regardless of turnover. LOW is
+    # intentionally present only in this fixture; OFF is exchange-inactive.
     monkeypatch.setattr(
         SymbolManager, "_load_yaml",
         lambda self, path: (
@@ -124,14 +124,12 @@ def test_dynamic_symbol_universe_uses_ticker_liquidity_and_active_status(monkeyp
     async def run():
         manager = SymbolManager(FakeRest())
         await manager.load_and_validate()
-        assert manager.normal_symbols == ["B-BTC_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.whitelist_diagnostics["ETHUSDT"]["status"] == "PARTIAL_LIQUIDITY"
-        assert manager.whitelist_diagnostics["ETHUSDT"]["normal_status"] == "LOW_LIQUIDITY"
-        assert manager.whitelist_diagnostics["ETHUSDT"]["momentum_status"] == "ELIGIBLE"
+        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
+        assert manager.liquidity["B-ETH_USDT"] == 200.0
+        assert manager.liquidity["B-LOW_USDT"] == 1.0
         assert "B-OFF_USDT" not in manager.valid_pairs
         assert "B-LOW_USDT" in manager.valid_pairs
-        assert manager.whitelist_diagnostics["LOWUSDT"]["status"] == "LOW_LIQUIDITY"
 
     asyncio.run(run())
 
@@ -878,9 +876,9 @@ def test_static_universe_fails_closed_when_turnover_data_is_missing(monkeypatch)
     async def run():
         manager = SymbolManager(FakeRest())
         await manager.load_and_validate()
-        assert manager.normal_symbols == []
-        assert manager.momentum_symbols == []
-        assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.liquidity["B-BTC_USDT"] == 0.0
 
     asyncio.run(run())
 
