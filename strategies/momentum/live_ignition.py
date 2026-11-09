@@ -336,6 +336,7 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
                 "session_open_local": info["session_open_local"],
                 "range_high": rh, "range_low": rl, "range_width_atr": info["range_width_atr"],
                 "breakout_level": edge, "breakout_extension_atr": round(ext, 3),
+                "move_atr": round(sign * (c - ctx.last_close) / ctx.atr, 3),
                 "volume_ratio": round(vol_ratio, 3),
                 "volume_pace": round(vol_ratio / max(frac, 1e-9), 3),
                         "held_seconds": round((now_ms - first) / 1000, 1),
