@@ -397,3 +397,46 @@ def test_replacement_symbols_map_to_delta_canonical_usd_products():
         }
         assert DeltaExchangeRest._asset_symbol(product) == asset
         assert DeltaExchangeRest._canonical_for_asset(asset) == f"B-{asset}_USDT"
+
+
+@pytest.mark.asyncio
+async def test_websocket_resubscribes_when_active_symbol_universe_changes():
+    from exchange.delta_ws import DeltaFuturesStream
+    from exchange.candle_builder import CandleBuilder
+
+    class FakeRest:
+        @staticmethod
+        def delta_symbol_for_pair(pair):
+            return pair.removeprefix("B-").removesuffix("_USDT") + "USD"
+
+    class FakeConnection:
+        def __init__(self):
+            self.closed = None
+
+        async def close(self, code=1000, reason=""):
+            self.closed = (code, reason)
+
+    stream = DeltaFuturesStream(CandleBuilder(), FakeRest())
+    stream._running = True
+    stream._connected = True
+    stream._connected_event.set()
+    connection = FakeConnection()
+    stream._connection = connection
+    stream._channels = {
+        "candlestick_5m": ["BTCUSD"],
+        "candlestick_15m": ["BTCUSD"],
+    }
+
+    changed = await stream.update_symbols(["B-BTC_USDT", "B-ETH_USDT"])
+    assert changed is True
+    assert connection.closed == (1000, "active_universe_updated")
+    assert stream.connected is False
+    assert not stream._connected_event.is_set()
+    assert stream._channels == {
+        "candlestick_5m": ["BTCUSD", "ETHUSD"],
+        "candlestick_15m": ["BTCUSD", "ETHUSD"],
+    }
+
+    # Repeating the same active universe does not churn the socket.
+    stream._connection = None
+    assert await stream.update_symbols(["B-ETH_USDT", "B-BTC_USDT"]) is False
