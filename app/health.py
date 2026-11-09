@@ -156,11 +156,17 @@ async def health(request: Request):
         getattr(telegram, "bot", None) and getattr(telegram, "admin_ids", [])
     )
 
-    # In production, a process that has not completed lifespan startup is not ready.
-    if state is None and settings.is_production:
+    # Readiness must represent a started scanner in every environment.
+    # A live HTTP process before lifespan initialization is only liveness, not readiness.
+    if state is None:
         return JSONResponse(
             status_code=503,
-            content={"ok": False, "status": "degraded", "reasons": ["startup_incomplete"]},
+            content={
+                "ok": False,
+                "status": "degraded",
+                "reasons": ["startup_incomplete"],
+                "liveness": "/ping",
+            },
         )
 
     scan_freshness, scan_cycle_stale = _scan_freshness(state or {}, request)
