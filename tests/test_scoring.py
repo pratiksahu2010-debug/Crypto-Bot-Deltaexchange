@@ -329,7 +329,7 @@ def test_all_scoring_modes_fail_closed_on_malformed_and_nonfinite_indicators():
 
     # Malformed truthy strings must never count as confirmation.
     normal = engine.score_normal(malformed, "LONG")
-    assert next(c for c in normal.components if c.name == "15m EMA Context").points == 0.0
+    assert all("15m" not in c.name for c in normal.components)
     assert next(c for c in normal.components if c.name == "EMA 9/21").points == 0.0
     momentum = engine.score_momentum(malformed, "LONG")
     assert next(c for c in momentum.components if c.name == "Squeeze State").points == 0.0
