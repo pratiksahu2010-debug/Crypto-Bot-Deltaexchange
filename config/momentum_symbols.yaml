@@ -2,7 +2,7 @@
 # Membership and order are static; 24h turnover is telemetry, not a rotation rule.
 # Internal B-<ASSET>_USDT keys map to actual Delta <ASSET>USD products.
 # Missing or inactive contracts are skipped; the bot never substitutes symbols.
-# 2026-11-09: FARTCOIN, ORDI and JASMY replace unavailable BONK, KORU and LITE.
+# 2026-11-09: 1000BONK, FARTCOIN and ORDI replace unavailable BONK, KORU and LITE.
 symbols:
   - B-BTC_USDT
   - B-ETH_USDT
@@ -84,7 +84,7 @@ symbols:
   - B-DOGS_USDT
   - B-OPN_USDT
   - B-ME_USDT
-  - B-JASMY_USDT
+  - B-1000BONK_USDT
   - B-MOVE_USDT
   - B-EVAA_USDT
   - B-AIGENSYN_USDT
