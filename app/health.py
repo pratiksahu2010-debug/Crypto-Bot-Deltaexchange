@@ -231,8 +231,12 @@ async def health(request: Request):
             if database == "unavailable" or database_paused:
                 reasons.append("database_unavailable")
             if normal_symbols_missing:
+                if int(state.get("valid_symbols_normal") or 0) <= 0:
+                    reasons.append("normal_universe_empty")
                 reasons.append("normal_universe_incomplete")
             if momentum_symbols_missing:
+                if int(state.get("valid_symbols_momentum") or 0) <= 0:
+                    reasons.append("momentum_universe_empty")
                 reasons.append("momentum_universe_incomplete")
             if telegram_unavailable:
                 reasons.append("telegram_delivery_unavailable")
@@ -251,6 +255,7 @@ async def health(request: Request):
             if delivery_task_not_running:
                 reasons.append("telegram_delivery_worker_not_running")
             if scan_cycle_stale:
+                reasons.append("scan_cycle_stale")
                 reasons.append("scan_cycle_not_fresh_or_not_started")
             if market_data_not_ready:
                 reasons.append("per_symbol_candle_data_not_ready")
