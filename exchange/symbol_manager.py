@@ -243,10 +243,10 @@ class SymbolManager:
         def rank_universe(
             preferences: Dict[str, int], limit: int, minimum_turnover: float, label: str
         ) -> List[str]:
-            # Fixed allowlist membership: never fill unavailable or illiquid
-            # slots with unrelated exchange markets. Delta Exchange active-contract
-            # validation and the engine-specific turnover floor remain in force.
-            configured = list(preferences.keys())[:max(0, int(limit))]
+            # Keep the complete configured allowlist. Apply the limit after
+            # stale-feed quarantine so a healthy next member can fill that slot.
+            # Turnover is telemetry only and never gates static membership.
+            configured = list(preferences.keys())
             available_by_key = {self._norm(pair): pair for pair in self.valid_pairs}
             selected: List[str] = []
             missing: List[str] = []
@@ -286,7 +286,7 @@ class SymbolManager:
                     f"symbols={','.join(missing)}"
                 )
 
-            # Do not dynamically add any symbol outside the fixed 120-coin list.
+            # No symbol outside the configured allowlist is ever introduced.
             return selected
 
         self._ranked_normal = rank_universe(
@@ -376,13 +376,12 @@ class SymbolManager:
                 existing["reason"] = reason
 
     def _select_active_symbols(self) -> None:
-        """Apply the fixed allowlists without daily liquidity-based rotation.
+        """Apply fixed allowlists, backfilling quarantined slots only within each list.
 
-        The YAML files define membership and order. Live Delta product validation
-        still prevents scanning unavailable contracts, and stale-feed quarantine
-        remains a temporary data-quality safety mechanism. 24h turnover is
-        telemetry only; it cannot add, replace, reorder, or remove allowlist
-        members.
+        YAML order is authoritative. Live Delta validation excludes unavailable
+        contracts; stale-feed quarantine is temporary. The configured limit is
+        filled from the next healthy member of the same allowlist. Turnover is
+        telemetry only and never gates membership.
         """
         excluded = set(self._quarantined)
 
@@ -394,8 +393,10 @@ class SymbolManager:
             )
             return chosen
 
-        self.normal_symbols = select(self._ranked_normal, "Normal")
-        self.momentum_symbols = select(self._ranked_momentum, "Momentum")
+        normal_limit = max(0, int(settings.normal_symbol_limit))
+        momentum_limit = max(0, int(settings.momentum_symbol_limit))
+        self.normal_symbols = select(self._ranked_normal, "Normal")[:normal_limit]
+        self.momentum_symbols = select(self._ranked_momentum, "Momentum")[:momentum_limit]
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
         for pair, item in self._quarantined.items():
