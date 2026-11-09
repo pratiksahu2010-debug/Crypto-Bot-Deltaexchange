@@ -67,6 +67,7 @@ if HAS_PYDANTIC:
         momentum_min_24h_turnover_usdt: float = Field(default=500000.0, alias="MOMENTUM_MIN_24H_TURNOVER_USDT")
         candle_close_grace_seconds: int = Field(default=3, alias="CANDLE_CLOSE_GRACE_SECONDS")
         max_signal_age_seconds: int = Field(default=120, alias="MAX_SIGNAL_AGE_SECONDS")
+        # Deprecated compatibility settings; never used to reject signals.
         futures_round_trip_cost_bps: float = Field(default=15.0, alias="FUTURES_ROUND_TRIP_COST_BPS")
         futures_max_spread_bps: float = Field(default=20.0, alias="FUTURES_MAX_SPREAD_BPS")
         futures_min_side_depth_usdt: float = Field(default=0.0, alias="FUTURES_MIN_SIDE_DEPTH_USDT")
