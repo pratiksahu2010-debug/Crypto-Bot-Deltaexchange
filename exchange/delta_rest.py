@@ -501,7 +501,7 @@ class DeltaExchangeRest:
                 continue
         dedup = {c["time"]: c for c in normalized}
         candles = [dedup[k] for k in sorted(dedup)][-limit:]
-        if candles:
+        if candles and track:
             age = (now_ms - (candles[-1]["time"] + duration_ms)) / 1000
             # Preserve each engine's own entry-age policy: the REST adapter
             # returns data within the widest enabled engine budget. Normal's
@@ -519,13 +519,12 @@ class DeltaExchangeRest:
                 else duration_ms / 1000.0 + entry_age_limit
             )
             if age > stale_limit:
-                if track:
-                    self._record_candle_feed_observation(
-                        pair, interval, False, error="stale_completed_candles"
-                    )
+                self._record_candle_feed_observation(
+                    pair, interval, False, error="stale_completed_candles"
+                )
                 logger.warning(f"DELTA_CANDLES_STALE {pair} {interval} age={age:.1f}s rejected")
                 candles = []
-            elif track:
+            else:
                 self._record_candle_feed_observation(
                     pair, interval, True, candles=candles
                 )
