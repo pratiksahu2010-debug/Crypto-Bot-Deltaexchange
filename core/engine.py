@@ -61,102 +61,6 @@ def _score_disposition(score: float, signal_threshold: float) -> str:
     return "REJECT"
 
 
-def _signal_follow_through_confirmed(
-    engine: str, direction: str, strategy: str, indicators: Dict[str, Any],
-    previous_close: float, current_close: float,
-) -> bool:
-    """Require a second completed candle to hold alignment and make progress."""
-    sign = 1.0 if direction == "LONG" else -1.0 if direction == "SHORT" else 0.0
-    if not sign:
-        return False
-    try:
-        e9 = float(indicators["ema9"])
-        e21 = float(indicators["ema21"])
-        vwap_value = float(indicators["vwap"])
-        atr_value = float(indicators["atr"])
-        previous = float(previous_close)
-        current = float(current_close)
-    except (KeyError, TypeError, ValueError, OverflowError):
-        return False
-    if not all(np.isfinite(x) for x in (e9, e21, vwap_value, atr_value, previous, current)):
-        return False
-    if atr_value <= 0 or sign * (e9 - e21) <= 0:
-        return False
-    if sign * (current - e9) <= 0 or sign * (current - vwap_value) <= 0:
-        return False
-
-    if engine == "normal":
-        if sign * (current - previous) <= 0 or indicators.get("confirm_15m") is not True:
-            return False
-        try:
-            rsi_value = float(indicators.get("rsi"))
-            adx_value = float(indicators.get("adx"))
-            plus_di = float(indicators.get("plus_di"))
-            minus_di = float(indicators.get("minus_di"))
-            rvol_value = float(indicators.get("rvol"))
-        except (TypeError, ValueError, OverflowError):
-            return False
-        if not all(np.isfinite(x) for x in (rsi_value, adx_value, plus_di, minus_di, rvol_value)):
-            return False
-        if adx_value < _normal_adx_floor(settings.normal_adx_min) or atr_value <= 0:
-            return False
-        if not (indicators.get("adx_rising") is True or adx_value >= 30.0):
-            return False
-        if rvol_value < max(1.4, settings.normal_rvol_min):
-            return False
-        if not (plus_di > minus_di if direction == "LONG" else minus_di > plus_di):
-            return False
-        return rsi_value > 50.0 if direction == "LONG" else rsi_value < 50.0
-
-    if str(strategy).startswith("ORB_"):
-        edge_key = "orb_range_high" if direction == "LONG" else "orb_range_low"
-        try:
-            edge = float(indicators[edge_key])
-            rvol_value = float(indicators.get("rvol"))
-            adx_value = float(indicators.get("adx"))
-            plus_di = float(indicators.get("plus_di"))
-            minus_di = float(indicators.get("minus_di"))
-        except (KeyError, TypeError, ValueError, OverflowError):
-            return False
-        if not all(np.isfinite(x) for x in (edge, rvol_value, adx_value, plus_di, minus_di)):
-            return False
-        di_aligned = plus_di > minus_di if direction == "LONG" else minus_di > plus_di
-        adx_confirmed = adx_value >= max(20.0, settings.orb_adx_min) and (
-            indicators.get("adx_rising") is True or adx_value >= 30.0
-        )
-        progress = sign * (current - previous) > 0
-        if str(strategy) == "ORB_PREBREAKOUT":
-            return bool(
-                sign * (edge - current) >= 0
-                and abs(edge - current) <= 0.35 * atr_value
-                and progress and rvol_value >= max(1.4, settings.orb_min_rvol)
-                and di_aligned and adx_confirmed
-                and (indicators.get("macd_direction_ok") is True
-                     or indicators.get("roc_direction_ok") is True)
-            )
-        retest_hold = str(strategy) == "ORB_RETEST" and sign * (current - edge) > 0
-        return bool(
-            sign * (current - edge) > 0
-            and rvol_value >= max(1.4, settings.orb_min_rvol)
-            and di_aligned and adx_confirmed and (progress or retest_hold)
-        )
-
-    try:
-        rvol_value = float(indicators.get("rvol"))
-        atr_expansion = float(indicators.get("atr_expansion"))
-    except (TypeError, ValueError, OverflowError):
-        return False
-    return bool(
-        sign * (current - previous) > 0
-        and np.isfinite(rvol_value) and rvol_value >= 1.4
-        and np.isfinite(atr_expansion) and atr_expansion >= 1.05
-        and (
-            indicators.get("roc_direction_ok") is True
-            or indicators.get("macd_direction_ok") is True
-        )
-    )
-
-
 def _normal_threshold_gates(
     indicators: Dict[str, Any], direction: str, adx_min: float = 20.0,
     strategy: Optional[str] = None,
@@ -281,53 +185,6 @@ def _confirmed_swing_levels(
     return pivot_high, pivot_low
 
 
-def _has_room_for_2r_target(
-    high: Any, low: Any, price: float, target: float, atr_value: float,
-    direction: str, lookback: int = 60, left: int = 2, right: int = 2,
-) -> bool:
-    """Reject a 2R target placed beyond the nearest confirmed opposing pivot."""
-    highs = np.asarray(high, dtype=float).reshape(-1)
-    lows = np.asarray(low, dtype=float).reshape(-1)
-    try:
-        entry, target_price, atr_value = float(price), float(target), float(atr_value)
-    except (TypeError, ValueError, OverflowError):
-        return False
-    if (
-        direction not in ("LONG", "SHORT") or highs.size != lows.size
-        or not all(np.isfinite(x) for x in (entry, target_price, atr_value))
-        or atr_value <= 0 or entry <= 0 or target_price <= 0
-        or highs.size < left + right + 3
-    ):
-        return False
-    start = max(0, highs.size - max(lookback, left + right + 3))
-    end = highs.size - right
-    levels = []
-    for idx in range(start + left, end):
-        h_window = highs[idx-left:idx+right+1]
-        l_window = lows[idx-left:idx+right+1]
-        if (
-            direction == "LONG" and highs[idx] > entry
-            and highs[idx] >= np.max(h_window)
-            and np.count_nonzero(highs[idx] == h_window) == 1
-        ):
-            levels.append(float(highs[idx]))
-        elif (
-            direction == "SHORT" and lows[idx] < entry
-            and lows[idx] <= np.min(l_window)
-            and np.count_nonzero(lows[idx] == l_window) == 1
-        ):
-            levels.append(float(lows[idx]))
-    if not levels:
-        return True
-    nearest = min(levels) if direction == "LONG" else max(levels)
-    buffer = 0.10 * atr_value
-    return (
-        target_price + buffer < nearest
-        if direction == "LONG"
-        else target_price - buffer > nearest
-    )
-
-
 class SignalEngine:
     def __init__(
         self,
@@ -360,9 +217,6 @@ class SignalEngine:
         self.scan_errors = {"normal": 0, "momentum": 0}
         # Independent candle cursors prevent one strategy engine suppressing the other.
         self._last_processed = {"normal": {}, "momentum": {}}
-        # Two-closed-candle confirmation prevents first-bar setup alerts.
-        # Keyed by (engine, pair); candidates expire if the next bar is missing.
-        self._pending_signal_confirmations: Dict[tuple, dict] = {}
         # Durable one-shot retest candidates, restored after process restarts.
         self.pending_retests: Dict[str, dict] = {}
         self.pending_retest_checks = 0
@@ -1200,7 +1054,6 @@ class SignalEngine:
                 f"decision=REJECT reason=direction_alignment "
                 f"candle_open_ms={candle_ts} candle_close_ms={candle_close_ms} "
                 f"close={float(close[-1]):.8g} ema9={ema9} ema21={ema21} vwap={vwap_v} "
-                f"body={signed_body:.8g}"
             )
             return
         # Direction is assigned above after the ORB result and momentum ROC
@@ -1524,8 +1377,7 @@ class SignalEngine:
             return
 
         if self.cooldowns[engine].is_cooling(pair, engine, direction):
-            self._pending_signal_confirmations.pop((engine, pair), None)
-            self._log_candle_evaluation(
+                self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
                 failed=["cooldown"], strategy=strategy, score=result.total,
@@ -1535,7 +1387,6 @@ class SignalEngine:
 
         # Indicator-qualified setups are eligible immediately; no second-candle
         # follow-through, candle-colour, or wick-shape confirmation is required.
-        self._pending_signal_confirmations.pop((engine, pair), None)
         self.watchlists[engine].remove_pair(pair, engine)
         indicators["confirmation_candles"] = 1
 
