@@ -503,7 +503,22 @@ class DeltaExchangeRest:
         candles = [dedup[k] for k in sorted(dedup)][-limit:]
         if candles:
             age = (now_ms - (candles[-1]["time"] + duration_ms)) / 1000
-            stale_limit = max(float(settings.max_signal_age_seconds), duration_ms * 2 / 1000)
+            # The 5m entry feed must be fresh enough for every enabled engine.
+            # Normal has the stricter age budget; Momentum may use its own wider
+            # budget only when Normal is disabled. The 15m context may naturally
+            # be up to one full context interval old at a 5m close, plus that
+            # same entry freshness allowance.
+            enabled_age_limits = []
+            if settings.enable_normal_engine:
+                enabled_age_limits.append(float(settings.normal_max_signal_age_seconds))
+            if settings.enable_momentum_engine:
+                enabled_age_limits.append(float(settings.max_signal_age_seconds))
+            entry_age_limit = min(enabled_age_limits) if enabled_age_limits else float(settings.max_signal_age_seconds)
+            stale_limit = (
+                entry_age_limit
+                if interval == settings.candle_primary_tf
+                else duration_ms / 1000.0 + entry_age_limit
+            )
             if age > stale_limit:
                 if track:
                     self._record_candle_feed_observation(
