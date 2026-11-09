@@ -761,7 +761,10 @@ class SignalEngine:
             await asyncio.sleep(delay)
 
     async def _sync_websocket_universe(self, app: Any) -> None:
-        websocket = getattr(app.state, "websocket", None)
+        app_state = getattr(app, "state", None) if app is not None else None
+        if app_state is None:
+            return
+        websocket = getattr(app_state, "websocket", None)
         updater = getattr(websocket, "update_symbols", None)
         if callable(updater) and settings.enable_websocket:
             await updater(set(self.symbols.normal_symbols + self.symbols.momentum_symbols))
