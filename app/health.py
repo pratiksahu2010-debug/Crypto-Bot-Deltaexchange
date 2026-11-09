@@ -115,13 +115,18 @@ def _market_data_freshness(request: Request) -> dict:
                 and status == "fresh"
                 and age is not None
                 and -60.0 <= age <= stale_after
-                and candle_age is not None
-                and 0.0 <= float(candle_age) <= candle_age_limit
+                and effective_candle_age is not None
+                and 0.0 <= effective_candle_age <= candle_age_limit
+            )
+            effective_candle_age = (
+                max(0.0, float(candle_age)) + max(0.0, age)
+                if candle_age is not None and age is not None else None
             )
             feed_details[pair][interval] = {
                 "status": status,
                 "observation_age_seconds": round(max(0.0, age), 1) if age is not None else None,
-                "candle_age_seconds": item.get("candle_age_seconds") if isinstance(item, dict) else None,
+                "candle_age_seconds": round(effective_candle_age, 1) if effective_candle_age is not None else None,
+                "candle_age_at_observation_seconds": candle_age,
                 "last_completed_open_ms": item.get("last_completed_open_ms") if isinstance(item, dict) else None,
                 "last_completed_close_ms": item.get("last_completed_close_ms") if isinstance(item, dict) else None,
                 "error": item.get("error") if isinstance(item, dict) else "no_observation",
