@@ -786,12 +786,12 @@ def test_normal_engine_has_no_macd_gate():
     # Missing or opposing MACD data must not affect Normal Engine approval.
     without_macd = _normal_threshold_gates(base, "LONG", 25.0)
     opposing_macd = _normal_threshold_gates({**base, "macd_hist": -999.0}, "LONG", 25.0)
-    assert len(without_macd) == 6
+    assert len(without_macd) == 5
     assert all(without_macd.values())
     assert opposing_macd == without_macd
 
 
-def test_normal_scoring_has_only_six_requested_indicator_components():
+def test_normal_scoring_has_only_indicator_components_without_15m_context():
     import pytest
     from core.scoring_engine import ScoringEngine
 
@@ -801,9 +801,9 @@ def test_normal_scoring_has_only_six_requested_indicator_components():
         "macd_hist": -999.0,
     }
     result = ScoringEngine().score_normal(indicators, "LONG")
-    assert len(result.components) == 6
-    assert sum(component.max_points for component in result.components) == pytest.approx(10.0)
-    assert result.total == pytest.approx(10.0)
+    assert len(result.components) == 5
+    assert sum(component.max_points for component in result.components) == pytest.approx(8.5)
+    assert result.total == pytest.approx(8.5)
 
 
 def test_confirmed_swing_levels_ignore_unconfirmed_last_two_bars():
