@@ -10,7 +10,8 @@ class RiskLevels:
 
 def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=1.5,
                    atr_mult_tp1: float=2.0, atr_mult_tp2: float=3.0, atr_mult_tp3: float=4.0,
-                   swing_low: Optional[float]=None, swing_high: Optional[float]=None) -> Optional[RiskLevels]:
+                   swing_low: Optional[float]=None, swing_high: Optional[float]=None,
+                   cost_bps: Optional[float]=None, min_net_rr: float=0.0) -> Optional[RiskLevels]:
     try:
         price = float(price)
         atr = float(atr)
@@ -54,8 +55,9 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
         or zone[0] >= zone[1]
     ):
         return None
-    # Report gross structural reward/risk. Fees, spread and slippage are not
-    # signal qualification gates and never alter the published ATR targets.
+    # Legacy cost_bps/min_net_rr arguments remain accepted for API compatibility,
+    # but are intentionally ignored. Signal qualification and targets are gross
+    # structural ATR calculations; fees, spread and slippage are not gates.
     rrs=[abs(t-price)/risk for t in targets]
     return RiskLevels(round(price,8),round(zone[0],8),round(zone[1],8),round(sl,8),
         round(targets[0],8),round(targets[1],8),round(targets[2],8),round(risk/price*100,4),
