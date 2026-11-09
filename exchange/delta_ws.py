@@ -187,15 +187,29 @@ class DeltaFuturesStream:
                             if self._last_heartbeat_ms is not None
                             else connection_started_ms
                         )
+                        current_ms = int(time.time() * 1000)
                         heartbeat_age_seconds = (
-                            int(time.time() * 1000) - heartbeat_reference_ms
+                            current_ms - heartbeat_reference_ms
                         ) / 1000.0
                         remaining_heartbeat_seconds = max(
                             0.0, 35.0 - heartbeat_age_seconds
                         )
+                        if self._connected:
+                            receive_timeout = remaining_heartbeat_seconds
+                        else:
+                            subscription_age_seconds = (
+                                current_ms - connection_started_ms
+                            ) / 1000.0
+                            remaining_subscription_seconds = max(
+                                0.0, 10.0 - subscription_age_seconds
+                            )
+                            receive_timeout = min(
+                                remaining_heartbeat_seconds,
+                                remaining_subscription_seconds,
+                            )
                         try:
                             raw = await asyncio.wait_for(
-                                connection.recv(), timeout=remaining_heartbeat_seconds
+                                connection.recv(), timeout=receive_timeout
                             )
                         except asyncio.TimeoutError as exc:
                             raise ConnectionError("heartbeat_timeout_35s") from exc
