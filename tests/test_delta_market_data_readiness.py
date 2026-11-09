@@ -453,7 +453,7 @@ async def test_primary_candle_freshness_uses_strictest_enabled_engine_age(monkey
     from exchange.delta_rest import DeltaExchangeRest
     from config import settings
 
-    now_ms = 1_800_000_000_000
+    now_ms = 1_800_000_090_000
     monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
     monkeypatch.setattr(settings, "enable_normal_engine", True)
     monkeypatch.setattr(settings, "enable_momentum_engine", True)
@@ -483,7 +483,7 @@ async def test_15m_context_allows_one_interval_plus_entry_age(monkeypatch):
     from exchange.delta_rest import DeltaExchangeRest
     from config import settings
 
-    now_ms = 1_800_000_000_000
+    now_ms = 1_800_000_840_000
     monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now_ms / 1000)
     monkeypatch.setattr(settings, "enable_normal_engine", True)
     monkeypatch.setattr(settings, "enable_momentum_engine", True)
