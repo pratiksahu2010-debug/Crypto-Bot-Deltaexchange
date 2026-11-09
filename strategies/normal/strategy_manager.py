@@ -1,7 +1,7 @@
 """Normal Engine strategy labels built from the Normal indicator set.
 
-The core engine owns mandatory RSI/ATR/15m gates. This module classifies a
-candidate using EMA9/21, VWAP and ADX without requiring MACD or candle shape.
+The core engine owns mandatory Normal indicator gates. This module classifies a
+candidate using EMA9/21, VWAP and ADX without requiring 15m agreement, MACD or candle shape.
 """
 from typing import Any, Dict
 import math
