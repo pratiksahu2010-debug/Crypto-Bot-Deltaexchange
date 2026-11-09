@@ -17,7 +17,7 @@ _NUMERIC_BOUNDS = {
     "upper_wick_ratio": (0.0, 1.0), "lower_wick_ratio": (0.0, 1.0),
 }
 _BOOLEAN_KEYS = {
-    "di_direction_ok", "adx_rising", "confirm_15m", "structure_direction_ok",
+    "di_direction_ok", "adx_rising", "structure_direction_ok",
     "squeeze_release", "compression_active", "bw_expand", "ema_aligned", "macd_accel",
     "macd_direction_ok", "rsi_accel", "structure_break",
     "roc_direction_ok", "orb_trend_confirmed", "orb_di_aligned",
