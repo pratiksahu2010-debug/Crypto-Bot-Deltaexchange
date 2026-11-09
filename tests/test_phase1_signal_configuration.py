@@ -37,3 +37,19 @@ def test_normal_score_reports_actual_8_5_point_maximum():
     assert result.total == pytest.approx(8.5)
     assert result.max_total == pytest.approx(8.5)
     assert sum(component.max_points for component in result.components) == pytest.approx(8.5)
+
+
+def test_normal_score_grade_uses_its_actual_maximum():
+    result = ScoringEngine().score_normal(
+        {
+            "ema9": 110.0,
+            "ema21": 100.0,
+            "close": 112.0,
+            "vwap": 105.0,
+            "rsi": 60.0,
+            "adx": 30.0,
+            "atr": 2.0,
+        },
+        "LONG",
+    )
+    assert result.grade == "HIGH-CONVICTION"

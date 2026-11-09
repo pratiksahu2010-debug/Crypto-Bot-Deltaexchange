@@ -85,20 +85,28 @@ class ScoreResult:
     direction: str = "NEUTRAL"
 
     def __post_init__(self):
-        if self.total >= 9.0:
+        # Grade against this result's actual maximum. Normal is an 8.5-point
+        # model; Momentum remains on its existing 10-point scale.
+        try:
+            maximum = float(self.max_total)
+            score = float(self.total)
+            ratio = score / maximum if math.isfinite(maximum) and maximum > 0 else 0.0
+        except (TypeError, ValueError, OverflowError):
+            ratio = 0.0
+        if ratio >= 0.90:
             self.grade = "HIGH-CONVICTION"
-        elif self.total >= 8.0:
+        elif ratio >= 0.80:
             self.grade = "STRONG"
-        elif self.total >= 7.0:
+        elif ratio >= 0.70:
             self.grade = "SIGNAL"
-        elif self.total >= 6.0:
+        elif ratio >= 0.60:
             self.grade = "WATCHLIST"
         else:
             self.grade = "NONE"
 
 
 class ScoringEngine:
-    """Normal engine default weights (sum = 10)."""
+    """Normal engine component weights; the five indicators sum to 8.5."""
 
     NORMAL_WEIGHTS = {
         # Normal's five scored indicators total 8.5 points.
