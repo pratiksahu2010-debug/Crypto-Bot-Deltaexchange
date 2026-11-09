@@ -456,7 +456,15 @@ class DeltaExchangeRest:
             "resolution": interval, "symbol": symbol,
             "start": int(start_ms / 1000), "end": int(end_ms / 1000),
         }
-        payload = await self._get(f"{self.base}/v2/history/candles", params=params)
+        try:
+            payload = await self._get(f"{self.base}/v2/history/candles", params=params)
+        except Exception as exc:
+            if track:
+                self._record_candle_feed_observation(
+                    pair, interval, False,
+                    error=f"rest_request_failed:{type(exc).__name__}",
+                )
+            raise
         rows = self._result(payload)
         if not isinstance(rows, list):
             if track:
