@@ -110,6 +110,13 @@ def _market_data_freshness(request: Request) -> dict:
                 if interval == settings.candle_primary_tf
                 else interval_seconds + readiness_entry_age_limit
             )
+            try:
+                effective_candle_age = (
+                    max(0.0, float(candle_age)) + max(0.0, age)
+                    if candle_age is not None and age is not None else None
+                )
+            except (TypeError, ValueError, OverflowError):
+                effective_candle_age = None
             healthy = (
                 isinstance(item, dict)
                 and status == "fresh"
@@ -117,10 +124,6 @@ def _market_data_freshness(request: Request) -> dict:
                 and -60.0 <= age <= stale_after
                 and effective_candle_age is not None
                 and 0.0 <= effective_candle_age <= candle_age_limit
-            )
-            effective_candle_age = (
-                max(0.0, float(candle_age)) + max(0.0, age)
-                if candle_age is not None and age is not None else None
             )
             feed_details[pair][interval] = {
                 "status": status,
