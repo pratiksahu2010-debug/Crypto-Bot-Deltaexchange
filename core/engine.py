@@ -1342,7 +1342,7 @@ class SignalEngine:
                     strategy=strategy,
                 )
                 return
-            # Score only the six mandatory Normal indicators; RVOL is not a gate.
+            # Score the six requested Normal indicators separately from the RVOL participation gate.
             self.watchlists["normal"].remove_pair(pair, "normal")
             result = self.normal_scoring.score_normal(indicators, direction)
         else:
@@ -1694,8 +1694,8 @@ class SignalEngine:
                 "invalidation": risk.invalidation,
             }
 
-        # Normal signals are qualified by the six explicit gates plus separate
-        # risk/entry safety checks. Scoring is informational, not a hidden gate.
+        # Normal signals pass explicit indicator/participation and entry checks plus
+        # the configured Normal score floor; Momentum has its own score disposition.
         disposition = (
             "SIGNAL" if engine == "normal"
             else _score_disposition(result.total, settings.signal_threshold)
