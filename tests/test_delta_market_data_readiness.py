@@ -187,6 +187,7 @@ async def test_telegram_outbox_duplicate_enqueue_and_delivery_are_idempotent(tmp
         telegram = FakeTelegram()
         worker = TelegramDeliveryWorker(telegram)
         assert await worker.run_once() == 1
+        assert await enqueue_signal_deliveries(signal, [123]) == 1
         assert await worker.run_once() == 0
         assert telegram.sent == [("B-BTC_USDT", 123)]
 
