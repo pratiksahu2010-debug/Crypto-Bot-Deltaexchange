@@ -109,7 +109,6 @@ class ScoringEngine:
         "rvol": 10.0 / 9.0,
         "atr": 10.0 / 9.0,
         "candle": 10.0 / 9.0,
-        "confirm_15m": 10.0 / 9.0,
         "structure": 10.0 / 9.0,
     }
 
@@ -166,10 +165,6 @@ class ScoringEngine:
         atr_ok = atr_value is not None and atr_value > 0
         add("ATR 14", 1.0 if atr_ok else 0.0, 1.0, atr_value,
             "ATR valid" if atr_ok else "ATR unavailable")
-
-        context_ok = indicators.get("confirm_15m") is True
-        add("15m EMA Context", 1.5 if context_ok else 0.0, 1.5, context_ok,
-            "15m EMA context aligned" if context_ok else "15m EMA context not aligned")
 
         total = round(sum(item.points for item in components), 2)
         return ScoreResult(total=total, components=components, direction=direction)
