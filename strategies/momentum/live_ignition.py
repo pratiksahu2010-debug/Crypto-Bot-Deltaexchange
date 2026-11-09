@@ -40,7 +40,7 @@ from strategies.momentum import orb_detector
 @dataclass(frozen=True)
 class LiveConfig:
     # --- Explosion ---------------------------------------------------------
-    min_move_atr: float = 1.20        # directional move from candle open, in prior-ATR units
+    min_move_atr: float = 1.20        # directional move from previous close, in prior-ATR units
     max_move_atr: float = 2.20        # above this the move has "already happened": skip (anti-chase)
     min_elapsed_seconds: float = 10.0
     max_elapsed_fraction: float = 0.85  # later than this the closed-candle path is nearly as fast
@@ -50,7 +50,6 @@ class LiveConfig:
     min_atr_pct: float = 0.05         # ignore dead markets (ATR below 0.05% of price)
     impulse_pace: float = 2.5         # evidence: very fast volume + big move even without structure
     impulse_move_atr: float = 1.3
-    min_structure_volume_pace: float = 1.8  # structural break must have above-baseline participation
     min_squeeze_volume_pace: float = 2.0    # squeeze release needs stronger participation
     max_squeeze_age_candles: int = 2          # compression must be recent, not stale
     # --- ORB ---------------------------------------------------------------
@@ -61,7 +60,6 @@ class LiveConfig:
     orb_min_volume_floor: float = 0.25
     orb_active_minutes: int = 180
     # --- Shared ------------------------------------------------------------
-    min_score: float = 7.0
     sessions: Tuple[str, ...] = ("london", "new_york", "asia")
 
     @classmethod
@@ -89,7 +87,6 @@ class LiveConfig:
             orb_hold_seconds=pick("live_orb_hold_seconds", defaults.orb_hold_seconds),
             orb_max_extension_atr=pick("live_orb_max_extension_atr", defaults.orb_max_extension_atr),
             orb_active_minutes=int(pick("orb_active_minutes", defaults.orb_active_minutes)),
-            min_score=max(8.0, pick("live_min_score", defaults.min_score)),
             sessions=tuple(sessions),
         )
 
@@ -339,7 +336,6 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
                 "session_open_local": info["session_open_local"],
                 "range_high": rh, "range_low": rl, "range_width_atr": info["range_width_atr"],
                 "breakout_level": edge, "breakout_extension_atr": round(ext, 3),
-                "move_atr": round(sign * (c - o) / ctx.atr, 3),
                 "volume_ratio": round(vol_ratio, 3),
                 "volume_pace": round(vol_ratio / max(frac, 1e-9), 3),
                         "held_seconds": round((now_ms - first) / 1000, 1),
@@ -356,7 +352,6 @@ def evaluate_orb(ctx: LiveContext, candle: Dict[str, Any], now_ms: int, tracker:
 
 def score_orb(res: Dict[str, Any], ctx: LiveContext, cfg: LiveConfig = LiveConfig()) -> ScoreResult:
     d, ext, pace, width = res["direction"], res["breakout_extension_atr"], res["volume_pace"], res["range_width_atr"]
-    move = res["move_atr"]
     comps = [
         ("break_extension", 2.0 if ext <= 0.30 else 1.5 if ext <= 0.45 else 1.0, 2.0,
          ext, "distance beyond range edge (smaller = earlier)"),
@@ -364,8 +359,6 @@ def score_orb(res: Dict[str, Any], ctx: LiveContext, cfg: LiveConfig = LiveConfi
          pace, "time-normalised volume vs average candle"),
         ("range_quality", 1.0 if 0.30 <= width <= 1.60 else 0.5, 1.0,
          width, "opening-range width in ATR"),
-        ("impulse", 1.5 if move >= 1.0 else 1.0 if move >= 0.6 else 0.5 if move >= 0.3 else 0.0, 1.5,
-         move, "ATR moved since candle open"),
         ("trend_alignment", _trend_points(ctx, d, res["trigger_price"]), 1.0,
          None, "EMA9/21 and EMA50 side"),
         ("session", 0.7 if res["session"] == "asia" else 1.0, 1.0,
