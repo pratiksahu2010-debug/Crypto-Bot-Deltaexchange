@@ -819,11 +819,13 @@ def test_confirmed_swing_levels_ignore_unconfirmed_last_two_bars():
 def test_risk_calculator_ignores_legacy_execution_cost_settings():
     from core.risk_calculator import calculate_risk
 
-    first = calculate_risk(100, 2, "LONG", swing_low=98.5)
-    second = calculate_risk(100, 2, "LONG", swing_low=98.5)
-    assert first is not None and second is not None
-    assert first == second
-    assert first.rr1 == 2.0
+    no_cost = calculate_risk(100, 2, "LONG", swing_low=98.5, cost_bps=0)
+    high_cost = calculate_risk(
+        100, 2, "LONG", swing_low=98.5, cost_bps=100, min_net_rr=10,
+    )
+    assert no_cost is not None and high_cost is not None
+    assert high_cost == no_cost
+    assert no_cost.rr1 == 2.0
 
 
 def test_candle_buffer_rejects_nonfinite_and_inconsistent_ohlc():
