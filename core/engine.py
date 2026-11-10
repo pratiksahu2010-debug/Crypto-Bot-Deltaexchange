@@ -1041,24 +1041,19 @@ class SignalEngine:
                     orb_avg_volume = float(np.mean(orb_arr["volume"][-21:-1]))
                     orb_rvol = float(orb_arr["volume"][-1] / orb_avg_volume) if orb_avg_volume > 0 else None
                     session_names = []
-                    session_names.append("utc")
-                    session_names.append("crypto_peak")
+                    if settings.orb_asia_enabled:
+                        session_names.append("asia")
                     if settings.orb_london_enabled:
                         session_names.append("london")
                     if settings.orb_new_york_enabled:
                         session_names.append("new_york")
-                    if getattr(settings, "orb_asia_enabled", False):
-                        session_names.append("asia")
-                    if getattr(settings, "orb_sydney_enabled", False):
-                        session_names.append("sydney")
-                    if getattr(settings, "orb_cme_enabled", True):
-                        session_names.append("cme")
+                    if settings.orb_late_us_enabled:
+                        session_names.append("late_us")
                     results = [
                         orb_detector.evaluate(
                             orb_arr, orb_atr, orb_rvol, session=session_name,
                             min_rvol=settings.orb_min_rvol,
                             max_extension_atr=settings.orb_max_extension_atr,
-                            active_minutes=settings.orb_active_minutes,
                             adx_value=adx_v,
                             plus_di=plus_di,
                             minus_di=minus_di,
@@ -1080,6 +1075,10 @@ class SignalEngine:
         indicators["orb_session"] = orb_result.get("session")
         indicators["orb_session_timezone"] = orb_result.get("session_timezone")
         indicators["orb_session_open_local"] = orb_result.get("session_open_local")
+        indicators["orb_session_date"] = orb_result.get("session_date")
+        indicators["orb_trade_window_end_local"] = orb_result.get("trade_window_end_local")
+        indicators["orb_session_rvol"] = orb_result.get("session_rvol")
+        indicators["orb_rvol_baseline"] = orb_result.get("rvol_baseline")
         indicators["orb_range_start_local"] = orb_result.get("range_start_local")
         indicators["orb_range_end_local"] = orb_result.get("range_end_local")
         indicators["orb_range_high"] = orb_result.get("range_high")
