@@ -154,7 +154,7 @@ def test_normal_40_and_momentum_100_fixed_allowlists():
 
 
 
-def test_fixed_allowlists_exclude_only_known_low_turnover_markets(monkeypatch):
+def test_turnover_never_excludes_static_symbols(monkeypatch):
     async def run():
         class TurnoverRest(FakeRest):
             async def get_ticker(self):
@@ -173,20 +173,15 @@ def test_fixed_allowlists_exclude_only_known_low_turnover_markets(monkeypatch):
             for symbol in ("BTC", "ETH")
         ])
         manager = SymbolManager(rest)
-
-        def load_yaml(path):
-            return ["B-BTC_USDT", "B-ETH_USDT"]
-
-        monkeypatch.setattr(manager, "_load_yaml", load_yaml)
+        monkeypatch.setattr(manager, "_load_yaml", lambda path: ["B-BTC_USDT", "B-ETH_USDT"])
         monkeypatch.setattr("exchange.symbol_manager.settings.normal_symbol_limit", 2)
         monkeypatch.setattr("exchange.symbol_manager.settings.momentum_symbol_limit", 2)
         monkeypatch.setattr("exchange.symbol_manager.settings.normal_min_24h_turnover_usdt", 1_000_000)
         monkeypatch.setattr("exchange.symbol_manager.settings.momentum_min_24h_turnover_usdt", 500_000)
         await manager.load_and_validate()
 
-        assert manager.normal_symbols == ["B-BTC_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT"]
-        assert manager.whitelist_diagnostics["ETHUSDT"]["status"] == "LOW_LIQUIDITY"
+        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
 
     asyncio.run(run())
 
