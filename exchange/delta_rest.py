@@ -502,12 +502,19 @@ class DeltaExchangeRest:
             return []
 
         normalized = []
+        invalid_row_count = 0
+        future_row_count = 0
         for row in rows:
             if not isinstance(row, dict):
+                invalid_row_count += 1
                 continue
             try:
                 stamp = self._timestamp_ms(row.get("time"))
                 if stamp is None:
+                    invalid_row_count += 1
+                    continue
+                if stamp > now_ms + 6_000:
+                    future_row_count += 1
                     continue
                 candle = {
                     "time": stamp,
@@ -525,9 +532,17 @@ class DeltaExchangeRest:
                 if stamp % duration_ms == 0 and stamp + duration_ms + grace_ms <= now_ms:
                     normalized.append(candle)
             except (TypeError, ValueError, OverflowError):
+                invalid_row_count += 1
                 continue
         dedup = {c["time"]: c for c in normalized}
+        duplicate_row_count = len(normalized) - len(dedup)
         candles = [dedup[k] for k in sorted(dedup)][-limit:]
+        gap_count = 0
+        if len(candles) > 1:
+            gap_count = sum(
+                max(0, (candles[index]["time"] - candles[index - 1]["time"]) // duration_ms - 1)
+                for index in range(1, len(candles))
+            )
         if candles and track:
             age = (now_ms - (candles[-1]["time"] + duration_ms)) / 1000
             # Preserve each engine's own entry-age policy: the REST adapter
@@ -559,6 +574,20 @@ class DeltaExchangeRest:
             self._record_candle_feed_observation(
                 pair, interval, False, error="no_fresh_completed_candles"
             )
+        if track:
+            status = self._candle_feed_status.setdefault(pair, {}).setdefault(interval, {})
+            status.update({
+                "duplicate_row_count": duplicate_row_count,
+                "missing_candle_count": gap_count,
+                "future_row_count": future_row_count,
+                "invalid_row_count": invalid_row_count,
+            })
+            if duplicate_row_count or gap_count or future_row_count or invalid_row_count:
+                logger.warning(
+                    "DELTA_CANDLE_DATA_QUALITY pair=%s interval=%s duplicates=%s gaps=%s future=%s invalid=%s",
+                    pair, interval, duplicate_row_count, gap_count,
+                    future_row_count, invalid_row_count,
+                )
         self._candle_cache[cache_key] = (time.monotonic(), [dict(c) for c in candles])
         self._prune_candle_cache()
         return candles
