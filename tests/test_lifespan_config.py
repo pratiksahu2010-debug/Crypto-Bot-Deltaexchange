@@ -90,3 +90,34 @@ def test_signal_engine_does_not_require_orderbook_for_signal_delivery():
     source = inspect.getsource(SignalEngine)
     assert "_check_orderbook_spread" not in source
     assert "get_futures_orderbook" not in source
+
+
+@pytest.mark.parametrize(
+    "setting,value,error",
+    [
+        ("normal_max_signal_age_seconds", 0, "NORMAL_MAX_SIGNAL_AGE_SECONDS"),
+        ("normal_retest_ttl_seconds", 0, "NORMAL_RETEST_TTL_SECONDS"),
+        ("normal_max_trigger_age_candles", -1, "NORMAL_MAX_TRIGGER_AGE_CANDLES"),
+        ("normal_pullback_lookback", 0, "NORMAL_PULLBACK_LOOKBACK"),
+        ("normal_max_extension_atr", 0.0, "NORMAL_MAX_EXTENSION_ATR"),
+        ("normal_pullback_touch_atr", 0.0, "NORMAL_PULLBACK_TOUCH_ATR"),
+    ],
+)
+def test_runtime_config_rejects_invalid_normal_entry_timing_settings(
+    monkeypatch, setting, value, error
+):
+    monkeypatch.setattr(settings, setting, value)
+    with pytest.raises(ValueError, match=error):
+        validate_runtime_config()
+
+
+def test_signal_only_and_order_execution_are_hard_disabled():
+    assert settings.signal_only is True
+    assert settings.orders_enabled is False
+
+
+def test_normal_adx_floor_cannot_be_lowered_below_25(monkeypatch):
+    from core.engine import _normal_adx_floor
+
+    monkeypatch.setattr(settings, "normal_adx_min", 18.0)
+    assert _normal_adx_floor(settings.normal_adx_min) == 25.0

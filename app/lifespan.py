@@ -74,6 +74,8 @@ def validate_runtime_config() -> None:
         "NORMAL_RVOL_MIN": settings.normal_rvol_min,
         "NORMAL_ADX_MIN": settings.normal_adx_min,
         "MOMENTUM_ADX_MIN": settings.momentum_adx_explosion,
+        "NORMAL_MAX_EXTENSION_ATR": settings.normal_max_extension_atr,
+        "NORMAL_PULLBACK_TOUCH_ATR": settings.normal_pullback_touch_atr,
         "NORMAL_MIN_24H_TURNOVER_USDT": settings.normal_min_24h_turnover_usdt,
         "MOMENTUM_MIN_24H_TURNOVER_USDT": settings.momentum_min_24h_turnover_usdt,
         "ORB_MIN_RVOL": settings.orb_min_rvol,
@@ -96,6 +98,18 @@ def validate_runtime_config() -> None:
 
     if settings.candle_close_grace_seconds < 0:
         raise ValueError("CANDLE_CLOSE_GRACE_SECONDS cannot be negative")
+    if settings.normal_max_signal_age_seconds <= 0:
+        raise ValueError("NORMAL_MAX_SIGNAL_AGE_SECONDS must be positive")
+    if settings.normal_retest_ttl_seconds <= 0:
+        raise ValueError("NORMAL_RETEST_TTL_SECONDS must be positive")
+    if settings.normal_max_trigger_age_candles < 0:
+        raise ValueError("NORMAL_MAX_TRIGGER_AGE_CANDLES cannot be negative")
+    if settings.normal_pullback_lookback < 1:
+        raise ValueError("NORMAL_PULLBACK_LOOKBACK must be at least 1")
+    if settings.normal_max_extension_atr <= 0:
+        raise ValueError("NORMAL_MAX_EXTENSION_ATR must be positive")
+    if settings.normal_pullback_touch_atr <= 0:
+        raise ValueError("NORMAL_PULLBACK_TOUCH_ATR must be positive")
     if settings.max_signal_age_seconds <= 0:
         raise ValueError("MAX_SIGNAL_AGE_SECONDS must be positive")
     if settings.max_candles_buffer < 50:
