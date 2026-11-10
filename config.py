@@ -182,6 +182,7 @@ else:
             self.orb_enabled = os.getenv("ORB_ENABLED", "true").lower() == "true"
             self.orb_london_enabled = os.getenv("ORB_LONDON_ENABLED", "true").lower() == "true"
             self.orb_new_york_enabled = os.getenv("ORB_NEW_YORK_ENABLED", "true").lower() == "true"
+            self.orb_late_us_enabled = os.getenv("ORB_LATE_US_ENABLED", "false").lower() == "true"
             self.orb_min_rvol = float(os.getenv("ORB_MIN_RVOL", "1.4"))
             self.orb_adx_min = float(os.getenv("ORB_ADX_MIN", "20.0"))
             self.orb_max_extension_atr = float(os.getenv("ORB_MAX_EXTENSION_ATR", "0.80"))
