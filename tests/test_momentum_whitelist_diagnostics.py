@@ -151,3 +151,64 @@ def test_normal_40_and_momentum_100_fixed_allowlists():
     assert len(set(momentum)) == 100
     assert set(normal).issubset(set(momentum))
     assert all(symbol.startswith("B-") and symbol.endswith("_USDT") for symbol in momentum)
+
+
+
+def test_fixed_allowlists_exclude_only_known_low_turnover_markets(monkeypatch):
+    async def run():
+        class TurnoverRest(FakeRest):
+            async def get_ticker(self):
+                return [
+                    {"market": "B-BTC_USDT", "turnover_usd": "2000000"},
+                    {"market": "B-ETH_USDT", "turnover_usd": "100000"},
+                ]
+
+        rest = TurnoverRest([
+            {
+                "pair": f"B-{symbol}_USDT",
+                "target_currency_short_name": symbol,
+                "base_currency_short_name": "USDT",
+                "status": "active",
+            }
+            for symbol in ("BTC", "ETH")
+        ])
+        manager = SymbolManager(rest)
+
+        def load_yaml(path):
+            return ["B-BTC_USDT", "B-ETH_USDT"]
+
+        monkeypatch.setattr(manager, "_load_yaml", load_yaml)
+        monkeypatch.setattr("exchange.symbol_manager.settings.normal_symbol_limit", 2)
+        monkeypatch.setattr("exchange.symbol_manager.settings.momentum_symbol_limit", 2)
+        monkeypatch.setattr("exchange.symbol_manager.settings.normal_min_24h_turnover_usdt", 1_000_000)
+        monkeypatch.setattr("exchange.symbol_manager.settings.momentum_min_24h_turnover_usdt", 500_000)
+        await manager.load_and_validate()
+
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.whitelist_diagnostics["ETHUSDT"]["status"] == "LOW_LIQUIDITY"
+
+    asyncio.run(run())
+
+
+def test_unknown_turnover_does_not_empty_static_universe(monkeypatch):
+    async def run():
+        class UnknownTurnoverRest(FakeRest):
+            async def get_ticker(self):
+                return []
+
+        rest = UnknownTurnoverRest([{
+            "pair": "B-BTC_USDT",
+            "target_currency_short_name": "BTC",
+            "base_currency_short_name": "USDT",
+            "status": "active",
+        }])
+        manager = SymbolManager(rest)
+        monkeypatch.setattr(manager, "_load_yaml", lambda path: ["B-BTC_USDT"])
+        await manager.load_and_validate()
+
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
+
+    asyncio.run(run())
