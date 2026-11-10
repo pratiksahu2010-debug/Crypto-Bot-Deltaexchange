@@ -387,18 +387,71 @@ class SymbolManager:
         """
         excluded = set(self._quarantined)
 
-        def select(rank: List[str], label: str) -> List[str]:
-            chosen = [pair for pair in rank if pair not in excluded]
+        def select(rank: List[str], label: str, minimum_turnover: float) -> List[str]:
+            chosen = []
+            low_liquidity = []
+            unknown_liquidity = []
+            for pair in rank:
+                if pair in excluded:
+                    continue
+                turnover = self._as_positive(self.liquidity.get(pair))
+                if turnover > 0 and turnover < minimum_turnover:
+                    low_liquidity.append(pair)
+                    key = self._norm(pair)
+                    self.whitelist_diagnostics[key] = {
+                        "configured_symbol": key,
+                        "status": "LOW_LIQUIDITY",
+                        "turnover_24h_usdt": turnover,
+                        "minimum_turnover_24h_usdt": minimum_turnover,
+                        "reason": "known 24h Futures turnover is below configured liquidity floor",
+                    }
+                    self.skipped_reasons[pair] = (
+                        f"24h Futures turnover {turnover:.2f} below {minimum_turnover:.2f} USDT"
+                    )
+                    continue
+                if turnover <= 0:
+                    unknown_liquidity.append(pair)
+                    key = self._norm(pair)
+                    self.whitelist_diagnostics.setdefault(key, {
+                        "configured_symbol": key,
+                        "status": "LIQUIDITY_UNKNOWN",
+                        "reason": "no fresh matching 24h Futures turnover; retained static member",
+                    })
+                else:
+                    key = self._norm(pair)
+                    existing = self.whitelist_diagnostics.get(key)
+                    if existing and existing.get("status") in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN"):
+                        self.whitelist_diagnostics.pop(key, None)
+                    if self.skipped_reasons.get(pair, "").startswith("24h Futures turnover "):
+                        self.skipped_reasons.pop(pair, None)
+                chosen.append(pair)
             logger.info(
                 f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
-                f"active={len(chosen)} quarantined={len(rank) - len(chosen)}"
+                f"active={len(chosen)} low_liquidity={len(low_liquidity)} "
+                f"liquidity_unknown={len(unknown_liquidity)} "
+                f"quarantined={len(rank) - len(chosen) - len(low_liquidity)} "
+                f"minimum_turnover_usdt={minimum_turnover:.0f}"
             )
+            if low_liquidity:
+                logger.warning(
+                    f"{label.upper()}_LOW_LIQUIDITY_EXCLUDED count={len(low_liquidity)} "
+                    f"symbols={','.join(low_liquidity)}"
+                )
+            if unknown_liquidity:
+                logger.warning(
+                    f"{label.upper()}_LIQUIDITY_UNKNOWN count={len(unknown_liquidity)} "
+                    f"symbols={','.join(unknown_liquidity)} action=retained_static_members"
+                )
             return chosen
 
         normal_limit = max(0, int(settings.normal_symbol_limit))
         momentum_limit = max(0, int(settings.momentum_symbol_limit))
-        self.normal_symbols = select(self._ranked_normal, "Normal")[:normal_limit]
-        self.momentum_symbols = select(self._ranked_momentum, "Momentum")[:momentum_limit]
+        self.normal_symbols = select(
+            self._ranked_normal, "Normal", settings.normal_min_24h_turnover_usdt
+        )[:normal_limit]
+        self.momentum_symbols = select(
+            self._ranked_momentum, "Momentum", settings.momentum_min_24h_turnover_usdt
+        )[:momentum_limit]
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
         # Clear temporary quarantine diagnostics as soon as a recovered
