@@ -675,7 +675,12 @@ class SignalEngine:
         # Expose preflight progress: Render can otherwise look idle while the
         # first market refresh or WebSocket subscription is still in progress.
         self._app = app
-        state = app.state.bot_state
+        app_state = getattr(app, "state", None) if app is not None else None
+        state = getattr(app_state, "bot_state", None)
+        if not isinstance(state, dict):
+            state = {}
+            if app_state is not None:
+                app_state.bot_state = state
         state.update({
             "scan_task_status": "starting",
             "scan_stage": "universe_refresh",
