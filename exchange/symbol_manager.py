@@ -351,7 +351,7 @@ class SymbolManager:
         """Quarantine markets whose required candle feeds repeatedly return stale history."""
         getter = getattr(self.rest, "get_stale_market_timeframes", None)
         stale = getter() if callable(getter) else {}
-        required = {settings.candle_primary_tf, settings.candle_confirm_tf}
+        required = {settings.candle_primary_tf}
         now = __import__("time").time()
         for pair, timeframe_counts in (stale or {}).items():
             relevant = {tf: int(count) for tf, count in timeframe_counts.items() if tf in required}
@@ -441,29 +441,25 @@ class SymbolManager:
         due = [pair for pair, item in self._quarantined.items() if item["retry_at"] <= now]
         if due:
             primary_tf = settings.candle_primary_tf
-            confirm_tf = settings.candle_confirm_tf
 
             async def probe(pair: str):
                 # Move the deadline first so concurrent refreshes cannot probe twice.
                 self._quarantined[pair]["retry_at"] = time.time() + self._quarantine_retry_seconds
                 try:
-                    primary, confirm = await asyncio.gather(
-                        self.rest.get_candles(pair, primary_tf, limit=100),
-                        self.rest.get_candles(pair, confirm_tf, limit=100),
-                    )
+                    primary = await self.rest.get_candles(pair, primary_tf, limit=100)
                     stale_getter = getattr(self.rest, "get_stale_market_timeframes", None)
                     stale_for_pair = (stale_getter() or {}).get(pair, {}) if callable(stale_getter) else {}
-                    if len(primary) >= 50 and len(confirm) >= 55 and not stale_for_pair:
+                    primary_stale = primary_tf in stale_for_pair
+                    if len(primary) >= 50 and not primary_stale:
                         self._quarantined.pop(pair, None)
                         logger.info(
-                            f"MARKET_RESTORED {pair} fresh_{primary_tf}={len(primary)} "
-                            f"fresh_{confirm_tf}={len(confirm)}"
+                            f"MARKET_RESTORED {pair} fresh_{primary_tf}={len(primary)}"
                         )
                     else:
                         item = self._quarantined[pair]
                         item["reason"] = (
                             f"retry still unhealthy: {primary_tf}={len(primary)} candles, "
-                            f"{confirm_tf}={len(confirm)} candles, stale={stale_for_pair}"
+                            f"stale={primary_stale}"
                         )
                         retry_at = datetime.fromtimestamp(item["retry_at"], tz=timezone.utc).isoformat()
                         logger.warning(

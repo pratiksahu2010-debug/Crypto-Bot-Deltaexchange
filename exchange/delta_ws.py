@@ -91,7 +91,7 @@ class DeltaFuturesStream:
         if not symbols:
             logger.warning("DELTA_WS_NOT_STARTED reason=no_mapped_products")
             return False
-        intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+        intervals = (settings.candle_primary_tf,)
         self._channels = {
             f"candlestick_{interval}": symbols for interval in intervals
         }
@@ -124,7 +124,7 @@ class DeltaFuturesStream:
                 )
         if not symbols:
             return False
-        intervals = tuple(dict.fromkeys((settings.candle_primary_tf, settings.candle_confirm_tf)))
+        intervals = (settings.candle_primary_tf,)
         updated = {
             f"candlestick_{interval}": symbols for interval in intervals
         }
