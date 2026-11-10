@@ -336,16 +336,10 @@ class SymbolManager:
             )
             return
 
-        # Refresh estimated USDT turnover only. Static allowlists determine
-        # candidate membership and order; the liquidity floor only excludes candidates.
+        # Turnover is retained strictly as diagnostic telemetry. It never
+        # changes membership, ordering, or eligibility of the static allowlists.
         self.liquidity.update(updated_liquidity)
-        for pair, volume in updated_liquidity.items():
-            if volume <= 0:
-                self.skipped_reasons[pair] = "liquidity unknown; no matching Futures turnover data"
-            else:
-                self.skipped_reasons.pop(pair, None)
         self._last_liquidity_refresh = __import__("time").time()
-        self._select_active_symbols()
 
     def _refresh_quarantine_from_rest(self) -> None:
         """Quarantine markets whose required candle feeds repeatedly return stale history."""
@@ -378,84 +372,31 @@ class SymbolManager:
                 existing["reason"] = reason
 
     def _select_active_symbols(self) -> None:
-        """Apply fixed allowlists, backfilling quarantined slots only within each list.
+        """Select only configured, live Delta crypto perpetuals; turnover never gates membership.
 
-        YAML order is authoritative. Live Delta validation excludes unavailable
-        contracts; stale-feed quarantine is temporary. The configured limit is
-        filled from the next healthy member of the same allowlist. Turnover is
-        telemetry only and never gates membership.
+        YAML order is authoritative. Missing/inactive contracts are excluded by
+        live product validation; repeated stale-candle feeds are temporarily
+        quarantined and retried. No dynamic or turnover-based substitutions.
         """
         excluded = set(self._quarantined)
 
-        def select(rank: List[str], label: str, minimum_turnover: float) -> List[str]:
-            chosen = []
-            low_liquidity = []
-            unknown_liquidity = []
-            for pair in rank:
-                if pair in excluded:
-                    continue
-                turnover = self._as_positive(self.liquidity.get(pair))
-                if turnover > 0 and turnover < minimum_turnover:
-                    low_liquidity.append(pair)
-                    key = self._norm(pair)
-                    self.whitelist_diagnostics[key] = {
-                        "configured_symbol": key,
-                        "status": "LOW_LIQUIDITY",
-                        "turnover_24h_usdt": turnover,
-                        "minimum_turnover_24h_usdt": minimum_turnover,
-                        "reason": "known 24h Futures turnover is below configured liquidity floor",
-                    }
-                    self.skipped_reasons[pair] = (
-                        f"24h Futures turnover {turnover:.2f} below {minimum_turnover:.2f} USDT"
-                    )
-                    continue
-                if turnover <= 0:
-                    unknown_liquidity.append(pair)
-                    key = self._norm(pair)
-                    self.whitelist_diagnostics.setdefault(key, {
-                        "configured_symbol": key,
-                        "status": "LIQUIDITY_UNKNOWN",
-                        "reason": "no fresh matching 24h Futures turnover; retained static member",
-                    })
-                else:
-                    key = self._norm(pair)
-                    existing = self.whitelist_diagnostics.get(key)
-                    if existing and existing.get("status") in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN"):
-                        self.whitelist_diagnostics.pop(key, None)
-                    if self.skipped_reasons.get(pair, "").startswith("24h Futures turnover "):
-                        self.skipped_reasons.pop(pair, None)
-                chosen.append(pair)
+        def select(rank: List[str], label: str, limit: int) -> List[str]:
+            chosen = [pair for pair in rank if pair not in excluded][:max(0, int(limit))]
             logger.info(
                 f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
-                f"active={len(chosen)} low_liquidity={len(low_liquidity)} "
-                f"liquidity_unknown={len(unknown_liquidity)} "
-                f"quarantined={len(rank) - len(chosen) - len(low_liquidity)} "
-                f"minimum_turnover_usdt={minimum_turnover:.0f}"
+                f"active={len(chosen)} quarantined={sum(pair in excluded for pair in rank)} "
+                "turnover_filter=disabled"
             )
-            if low_liquidity:
-                logger.warning(
-                    f"{label.upper()}_LOW_LIQUIDITY_EXCLUDED count={len(low_liquidity)} "
-                    f"symbols={','.join(low_liquidity)}"
-                )
-            if unknown_liquidity:
-                logger.warning(
-                    f"{label.upper()}_LIQUIDITY_UNKNOWN count={len(unknown_liquidity)} "
-                    f"symbols={','.join(unknown_liquidity)} action=retained_static_members"
-                )
             return chosen
 
-        normal_limit = max(0, int(settings.normal_symbol_limit))
-        momentum_limit = max(0, int(settings.momentum_symbol_limit))
-        self.normal_symbols = select(
-            self._ranked_normal, "Normal", settings.normal_min_24h_turnover_usdt
-        )[:normal_limit]
-        self.momentum_symbols = select(
-            self._ranked_momentum, "Momentum", settings.momentum_min_24h_turnover_usdt
-        )[:momentum_limit]
+        # Hard caps prevent stale Render environment overrides (e.g. 120/120)
+        # from expanding the requested fixed 40/100 strategy universes.
+        normal_limit = min(40, max(0, int(settings.normal_symbol_limit)))
+        momentum_limit = min(100, max(0, int(settings.momentum_symbol_limit)))
+        self.normal_symbols = select(self._ranked_normal, "Normal", normal_limit)
+        self.momentum_symbols = select(self._ranked_momentum, "Momentum", momentum_limit)
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
-        # Clear temporary quarantine diagnostics as soon as a recovered
-        # configured symbol is eligible and re-enters either active universe.
         for pair in selected:
             reason = self.skipped_reasons.get(pair, "")
             if reason.startswith("temporarily quarantined until "):
@@ -475,7 +416,8 @@ class SymbolManager:
             self.skipped_reasons.setdefault(pair, "outside fixed configured strategy allowlists")
         logger.info(
             f"ACTIVE_FIXED_UNIVERSE normal={len(self.normal_symbols)} "
-            f"momentum={len(self.momentum_symbols)} quarantined={len(self._quarantined)}"
+            f"momentum={len(self.momentum_symbols)} quarantined={len(self._quarantined)} "
+            "turnover_filter=disabled"
         )
 
     async def refresh_universes(self) -> None:
