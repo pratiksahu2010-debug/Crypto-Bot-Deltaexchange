@@ -1,104 +1,103 @@
 # Delta Exchange India Signal Bot v3.0
 
-Signal-only crypto futures scanner for **Delta Exchange India**. It publishes LONG/SHORT alerts to Telegram and never places orders or executes trades.
+Signal-only crypto futures scanner for Delta Exchange India. It publishes LONG/SHORT alerts to Telegram. It never places orders or executes trades.
 
-## Exchange migration
+## Exchange and data
 
-- REST: `https://api.india.delta.exchange`
-- Public WebSocket: `wss://public-socket.india.delta.exchange`
-- Product discovery: `GET /v2/products` filtered to live `perpetual_futures`
-- Tickers: `GET /v2/tickers?contract_types=perpetual_futures`
-- Candles: `GET /v2/history/candles`
-- Only public market-data endpoints are used. No Delta API key or secret is needed.
-- The bot retains its historical internal strategy keys (for example `B-BTC_USDT`) so persisted signals, Telegram formatting, deduplication and strategy state do not change. The exchange adapter maps these keys to discovered Delta product symbols (for example `BTCUSD`). It does not blindly replace suffixes.
-- Only live, operational perpetual futures are eligible. Spot, options, expired, upcoming and disrupted contracts are excluded.
-- The existing static symbol allowlists remain the source of candidate membership. A symbol not listed as a live Delta perpetual is reported unavailable; it is not silently replaced by a different asset.
-- Delta's published 24-hour `turnover_usd` is used for the existing liquidity floors. The existing environment variable names ending in `_USDT` are retained for deployment compatibility; thresholds are treated as approximate USD/USDT-equivalent liquidity floors, not an FX conversion.
+- REST: https://api.india.delta.exchange
+- Public WebSocket: wss://public-socket.india.delta.exchange
+- Product discovery uses the public live perpetual-futures catalogue.
+- Only public market-data endpoints are used; no Delta API key or secret is required.
+- The adapter maps canonical strategy symbols to live Delta product symbols and excludes spot, options, expired, upcoming and disrupted contracts.
+- Static allowlists define candidate membership. Unavailable symbols are reported rather than silently replaced.
+- Delta 24-hour USD turnover is used for liquidity floors. Existing environment names ending in USDT are retained for compatibility.
 
-## Strategies — preserved
+## Signal engines
 
-### Normal Engine (5m entries, 15m context)
+### Normal — completed 5-minute candles only
 
-- EMA 9/21, UTC-session VWAP, RSI(14), ADX(14), ATR(14), completed 15m EMA 9/21 context.
-- ADX hard floor: **25**.
-- Relative volume floor: **1.4**.
-- Existing rising-ADX / ADX >= 30 confirmation, directional DI alignment and fresh-entry triggers remain intact.
-- Fresh EMA-cross, VWAP-reclaim and EMA-pullback entry paths remain intact.
+Required indicator conditions:
+- EMA 9/21 directional alignment.
+- Price on the correct side of UTC-session VWAP.
+- RSI(14) above 50 for LONG or below 50 for SHORT.
+- ADX(14) at least 25, with directional +DI/-DI alignment.
+- Valid positive ATR(14).
+- A fresh EMA-cross, VWAP-reclaim or EMA-pullback trigger; default maximum trigger age is one candle.
+- Anti-chase limit: price-to-EMA9 extension must be no more than NORMAL_MAX_EXTENSION_ATR (default 0.80 ATR).
+
+Relative volume is optional and disabled by default. Set NORMAL_RVOL_GATE_ENABLED=true to enable NORMAL_RVOL_MIN. Normal scoring is diagnostic after the required indicator gates; SIGNAL_THRESHOLD is not a second Normal rejection gate.
+
+Normal does not require a 15-minute context, rising ADX, ADX of 30, second-candle follow-through, candle colour, body/wick shape, or order-book confirmation. Normal signals are checked again for freshness and entry-zone validity immediately before Telegram queuing.
 
 ### Momentum Explosion
 
-- Existing Bollinger Band / Keltner squeeze, ATR expansion, relative volume, EMA alignment, MACD, RSI acceleration and ROC logic are retained.
-- Pre-explosion qualification and scoring remain unchanged.
-- The exchange migration does not rewrite the Momentum Explosion detector.
+- Separate detector states for explosion, squeeze release, pre-explosion, continuation and volume spike.
+- Each detector owns its indicator qualification (EMA, RSI, MACD/ROC, squeeze, volatility and volume as applicable).
+- The shared engine does not add a second universal MACD, ADX/DI or RVOL veto after a detector qualifies.
+- Shared safety checks require valid ATR and reject entries more than 2.0 ATR from EMA9.
+- Scores below 5.5 are rejected; 5.5 to the signal threshold are watchlist-only; alerts require at least max(8.0, SIGNAL_THRESHOLD).
 
 ### Opening Range Breakout (ORB)
 
-- Existing UTC reset and Sydney, Tokyo, London, New York and CME session logic remain.
-- The 15-minute range is built from three completed 5-minute candles.
-- Existing range validation, extension, RVOL, ADX and scoring gates remain unchanged.
+- Separate ORB detector for UTC reset, Sydney, Tokyo, London, New York and CME sessions.
+- Each 15-minute opening range is defined by exactly three completed 5-minute candles. This is the ORB range definition, not a higher-timeframe confirmation gate.
+- ORB qualification uses its own range validity, EMA 9/21, session VWAP, RSI, MACD histogram/acceleration, ROC, RVOL, breakout-age and breakout-extension checks.
+- ADX trend status is diagnostic, not a universal ORB veto. There is no extra shared ADX-rising/ADX-30, DI-alignment or duplicate RVOL gate.
 
-### Shared signal and risk behavior
+## Shared signal, risk and delivery behavior
 
-- Existing 10-point scoring, filters, cooldowns, completed-candle confirmation, pending retests, duplicate protection and ATR-based SL/TP1/TP2/TP3 remain.
-- ATR-based stop-loss and target levels use gross structural reward/risk; fees, spread and slippage are not signal rejection gates.
-- Existing signal history, SQLite local / PostgreSQL production persistence, transactional claims, Telegram outbox and delivery worker remain.
-- No order placement, trade execution, account access or private WebSocket channels are included.
+- Only the configured primary timeframe is fetched/subscribed for closed-candle signal qualification; production entries use 5m.
+- No second-candle follow-through is required.
+- ATR-based stop-loss and target levels are calculated for the alert. Fees, spread and slippage are not signal rejection gates.
+- Persistent deduplication is global across engines for the same pair, direction and candle, including across process restarts.
+- Telegram uses push-only mode and a durable per-recipient outbox with retry and expiry. Retries cannot extend a signal's original entry-validity window.
+- Signal state, watchlists, pending retests and outcomes are persisted. Production scanning pauses if durable PostgreSQL is unavailable.
+- Signal-only is hard-coded true and order execution is hard-disabled. No order-placement or private trading endpoints are part of the exchange adapter.
 
-## Market data integrity
+## Market-data integrity
 
-- REST is authoritative for completed candles.
-- Delta native candle resolutions are used, including 5m and 15m; 15m candles are no longer synthesized from 5m bars.
-- Candle timestamps are normalized to UTC milliseconds. Malformed, duplicate, misaligned, unfinished, stale and out-of-window candles are rejected.
-- The public WebSocket uses Delta's native `candlestick_<resolution>` subscription protocol. It only feeds forming-candle telemetry and LTP cache; it does not replace REST closed-candle confirmation.
-- Delta WebSocket timestamps are microseconds and are normalized before freshness checks.
-- REST fallback remains available when WebSocket disconnects.
+- REST is authoritative for completed candles; WebSocket supplies forming-candle telemetry and fresh LTP cache only.
+- Candle timestamps are normalized to UTC milliseconds. Invalid, duplicate, future-dated, unfinished and stale rows are diagnosed or excluded.
+- REST fallback remains available during WebSocket reconnects.
+- The scanner, readiness checks and quarantine recovery require only the primary timeframe. CANDLE_CONFIRM_TF is retained only for backward-compatible environment files and has no signal role.
 
 ## Health and keepalive
 
-- `GET /health`, `GET /ping`, `GET /status`, `GET /metrics`
-- `/health` requires the configured Normal/Momentum universe sizes, a completed fresh scan for each enabled engine, active background workers, and fresh REST candle observations for every active symbol on both required timeframes. It returns HTTP 503 with diagnostic reasons until these conditions are met.
-- WebSocket status and per-symbol update ages are diagnostic; completed-candle scanning remains REST-authoritative and continues in REST fallback mode during socket reconnects.
-- `/ping` and `HEAD /ping` are lightweight liveness responses (204, no body) and do not trigger scans, database work, exchange calls or Telegram delivery.
-- Use an external cron ping every 10–14 minutes if required by the hosting platform.
-- Render runs one web instance and one Uvicorn worker. Production scanning remains paused if durable PostgreSQL storage is unavailable.
+- GET /health reports readiness, including database, enabled engines, scan/retest/delivery workers and per-symbol primary-candle freshness.
+- GET /status and GET /metrics expose operational diagnostics.
+- GET /ping and HEAD /ping return an empty 204 response. They do not scan, access the exchange, query the database or send Telegram messages.
+- Render uses one web instance and one Uvicorn worker. Configure DATABASE_URL to a reachable managed PostgreSQL database for production.
 
 ## Configuration
 
 Required Telegram variables:
+- TELEGRAM_BOT_TOKEN
+- TELEGRAM_ADMIN_IDS
 
-```env
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_ADMIN_IDS=
-```
-
-Exchange variables (public endpoints; normally leave defaults):
-
-```env
-DELTA_REST_BASE=https://api.india.delta.exchange
-DELTA_WS_URL=wss://public-socket.india.delta.exchange
-```
+Public exchange defaults:
+- DELTA_REST_BASE=https://api.india.delta.exchange
+- DELTA_WS_URL=wss://public-socket.india.delta.exchange
 
 Database:
+- Local development: sqlite+aiosqlite:///./delta_signal_bot.db
+- Production: postgresql+asyncpg://user:password@host:5432/delta_signals
 
-```env
-# Local development
-DATABASE_URL=sqlite+aiosqlite:///./delta_signal_bot.db
-
-# Production
-DATABASE_URL=postgresql+asyncpg://user:password@host:5432/delta_signals
-```
-
-Existing strategy thresholds and environment variable names are retained. In particular, keep `NORMAL_ADX_MIN=25`, `NORMAL_RVOL_MIN=1.4`, `NORMAL_MIN_24H_TURNOVER_USDT=1000000`, `MOMENTUM_MIN_24H_TURNOVER_USDT=500000`, `SIGNAL_ONLY=true` and `ORDERS_ENABLED=false` unless intentionally changing strategy policy.
+Important defaults:
+- CANDLE_PRIMARY_TF=5m
+- NORMAL_ADX_MIN=25
+- NORMAL_MAX_SIGNAL_AGE_SECONDS=60
+- NORMAL_MAX_EXTENSION_ATR=0.80
+- NORMAL_RVOL_GATE_ENABLED=false
+- MAX_SIGNAL_AGE_SECONDS=120 (Momentum/ORB)
+- MOMENTUM_SYMBOL_LIMIT=100
+- NORMAL_SYMBOL_LIMIT=40
+- SIGNAL_ONLY=true
+- ORDERS_ENABLED=false
 
 ## Run locally
 
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# Fill Telegram credentials and configure DATABASE_URL
-python main.py
-```
+Install requirements, copy .env.example to .env, fill Telegram credentials, configure DATABASE_URL, then run python main.py.
 
-## Important deployment note
+## Deployment note
 
-The adapter discovers the live Delta product catalogue at startup. Review `/status` and startup logs for eligible markets, unavailable allowlist entries and liquidity exclusions before relying on alerts. A migration build should be tested with the live public market-data API in the target deployment environment before enabling production scans.
+Review /status and startup logs for eligible markets, unavailable allowlist entries, liquidity exclusions, database readiness and scan freshness before relying on alerts. Validate live public market-data behavior in the target deployment environment.

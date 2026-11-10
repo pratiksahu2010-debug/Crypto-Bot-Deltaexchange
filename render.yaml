@@ -27,8 +27,6 @@ services:
         value: "true"
       - key: ORDERS_ENABLED
         value: "false"
-      - key: CANDLE_CONFIRM_TF
-        value: "15m"
       - key: ENABLE_WEBSOCKET
         value: "true"
       - key: ENABLE_NORMAL_ENGINE
