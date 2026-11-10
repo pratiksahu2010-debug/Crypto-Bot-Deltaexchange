@@ -131,7 +131,7 @@ async def claim_signal_once(signal: dict, candle_time_ms: int, ttl_hours: int = 
     if factory is None:
         logger.error("Persistent signal deduplication unavailable; suppressing alert")
         return False
-    key = f"{signal['pair']}:{signal.get('engine', 'legacy')}:{signal['direction']}:{int(candle_time_ms)}"
+    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires = now + timedelta(hours=max(1, int(ttl_hours)))
     values = dict(dedup_key=key, candle_time_ms=int(candle_time_ms),
@@ -373,7 +373,7 @@ async def release_signal_claim(signal: dict, candle_time_ms: int) -> bool:
     factory = database_db.SessionLocal
     if factory is None:
         return False
-    key = f"{signal['pair']}:{signal.get('engine', 'legacy')}:{signal['direction']}:{int(candle_time_ms)}"
+    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
     async with factory() as session:
         try:
             await session.execute(delete(SignalDedupRecord).where(SignalDedupRecord.dedup_key == key))

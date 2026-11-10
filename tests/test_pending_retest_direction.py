@@ -121,8 +121,7 @@ async def test_signal_claim_duplicate_is_blocked_after_database_engine_restart(m
     if not database_url:
         pytest.skip("TEST_DATABASE_URL is not configured (CI PostgreSQL service required)")
     pair = f"TEST_{uuid.uuid4().hex[:12]}_USDT"
-    normal_signal = {"pair": pair, "direction": "LONG", "engine": "normal"}
-    momentum_signal = {"pair": pair, "direction": "LONG", "engine": "momentum"}
+    signal = {"pair": pair, "direction": "LONG", "engine": "normal"}
     candle_ms = 1_800_000_000_000
 
     engine1 = create_async_engine(database_url)
@@ -132,12 +131,12 @@ async def test_signal_claim_duplicate_is_blocked_after_database_engine_restart(m
         engine1, expire_on_commit=False,
     ))
 
-    # Normal and Momentum are independent: same pair/direction/candle can
-    # produce one signal from each engine, but each engine is deduplicated.
-    assert await repositories.claim_signal_once(normal_signal, candle_ms, ttl_hours=4) is True
-    assert await repositories.claim_signal_once(momentum_signal, candle_ms, ttl_hours=4) is True
-    assert await repositories.claim_signal_once(normal_signal, candle_ms, ttl_hours=4) is False
-    assert await repositories.claim_signal_once(momentum_signal, candle_ms, ttl_hours=4) is False
+    # Global dedup prevents duplicate pair/direction/candle alerts across engines.
+    assert await repositories.claim_signal_once(signal, candle_ms, ttl_hours=4) is True
+    assert await repositories.claim_signal_once(
+        {**signal, "engine": "momentum"}, candle_ms, ttl_hours=4
+    ) is False
+    assert await repositories.claim_signal_once(signal, candle_ms, ttl_hours=4) is False
 
     # Simulate process restart: close the first pool and establish a fresh one.
     await engine1.dispose()
@@ -145,15 +144,14 @@ async def test_signal_claim_duplicate_is_blocked_after_database_engine_restart(m
     monkeypatch.setattr(repositories.database_db, "SessionLocal", async_sessionmaker(
         engine2, expire_on_commit=False,
     ))
-    assert await repositories.claim_signal_once(normal_signal, candle_ms, ttl_hours=4) is False
-    assert await repositories.claim_signal_once(momentum_signal, candle_ms, ttl_hours=4) is False
+    assert await repositories.claim_signal_once(signal, candle_ms, ttl_hours=4) is False
+    assert await repositories.claim_signal_once(
+        {**signal, "engine": "momentum"}, candle_ms, ttl_hours=4
+    ) is False
 
     async with database_db.SessionLocal() as session:
         await session.execute(delete(SignalDedupRecord).where(
-            SignalDedupRecord.dedup_key.in_([
-                f"{pair}:normal:LONG:{candle_ms}",
-                f"{pair}:momentum:LONG:{candle_ms}",
-            ])
+            SignalDedupRecord.dedup_key == f"{pair}:LONG:{candle_ms}"
         ))
         await session.commit()
     await engine2.dispose()
