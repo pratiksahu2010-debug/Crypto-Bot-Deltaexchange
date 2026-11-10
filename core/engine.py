@@ -658,15 +658,42 @@ class SignalEngine:
         Each engine owns its own loop and cursor while sharing the bounded REST
         client and the same completed-candle/freshness rules.
         """
-        # Every symbol fetches and seeds its own current candle history in _process_pair;
-        # a separate serial warmup duplicated REST calls and delayed the first scan.
+        # Expose preflight progress: Render can otherwise look idle while the
+        # first market refresh or WebSocket subscription is still in progress.
+        self._app = app
+        state = app.state.bot_state
+        state.update({
+            "scan_task_status": "starting",
+            "scan_stage": "universe_refresh",
+            "scan_stage_started_at": utc_iso(utc_now()),
+            "scan_progress_engine": None,
+            "scan_progress_symbol": None,
+            "scan_progress_completed": 0,
+            "scan_progress_total": 0,
+            "scan_progress_updated_at": utc_iso(utc_now()),
+        })
+        logger.info("SCAN_STARTUP_STAGE stage=universe_refresh")
         await self.symbols.refresh_universes()
+
+        state["scan_stage"] = "websocket_sync"
+        state["scan_progress_updated_at"] = utc_iso(utc_now())
+        logger.info(
+            "SCAN_STARTUP_STAGE stage=websocket_sync "
+            f"normal_symbols={len(self.symbols.normal_symbols)} "
+            f"momentum_symbols={len(self.symbols.momentum_symbols)}"
+        )
         await self._sync_websocket_universe(app)
 
-        # A Render restart can occur mid-candle. Do not spend the first scan
-        # fetching a full universe only to reject every bar as older than the
-        # 120-second signal-age limit. Start on the next usable close boundary.
+        # Wait for the next usable completed-candle boundary after preflight.
+        state["scan_stage"] = "waiting_for_candle_boundary"
+        state["scan_progress_updated_at"] = utc_iso(utc_now())
+        logger.info("SCAN_STARTUP_STAGE stage=waiting_for_candle_boundary")
         await self._wait_for_next_primary_boundary()
+
+        state["scan_task_status"] = "running"
+        state["scan_stage"] = "scanning"
+        state["scan_progress_updated_at"] = utc_iso(utc_now())
+        logger.info("SCAN_READY closed_candle_scanning=true")
 
         tasks = []
         if settings.enable_normal_engine:
@@ -683,6 +710,19 @@ class SignalEngine:
 
         while self._running:
             try:
+                state = getattr(getattr(self, "_app", None), "state", None)
+                state = getattr(state, "bot_state", None)
+                if isinstance(state, dict):
+                    state[f"{engine}_engine"] = "scanning"
+                    state["scan_stage"] = f"{engine}_scan"
+                    state["scan_progress_engine"] = engine
+                    state["scan_progress_symbol"] = None
+                    state["scan_progress_completed"] = 0
+                    state["scan_progress_total"] = len(
+                        self.symbols.normal_symbols if engine == "normal"
+                        else self.symbols.momentum_symbols
+                    )
+                    state["scan_progress_updated_at"] = utc_iso(utc_now())
                 # Apply stale-feed quarantine before selecting the next scan's
                 # symbols. The other engine may have observed the second stale
                 # response during its previous cycle.
@@ -763,6 +803,15 @@ class SignalEngine:
 
         cycle_started_utc = utc_iso(utc_now())
         symbol_durations = []
+        state = getattr(getattr(getattr(self, "_app", None), "state", None), "bot_state", None)
+        completed = 0
+        last_progress_log = started
+        if isinstance(state, dict):
+            state["scan_progress_engine"] = engine
+            state["scan_progress_total"] = len(pairs)
+            state["scan_progress_completed"] = 0
+            state["scan_progress_symbol"] = None
+            state["scan_progress_updated_at"] = utc_iso(utc_now())
         self._scan_rejection_stats[engine] = {
             "evaluated": 0, "signal": 0, "watchlist": 0, "reject": 0,
             "reasons": {},
@@ -774,7 +823,11 @@ class SignalEngine:
         )
 
         async def process(pair: str) -> None:
+            nonlocal completed, last_progress_log
             symbol_started = asyncio.get_running_loop().time()
+            if isinstance(state, dict):
+                state["scan_progress_symbol"] = pair
+                state["scan_progress_updated_at"] = utc_iso(utc_now())
             outcome = "ok"
             try:
                 await self._process_pair(pair, engine=engine)
@@ -785,10 +838,22 @@ class SignalEngine:
             finally:
                 elapsed_ms = int((asyncio.get_running_loop().time() - symbol_started) * 1000)
                 symbol_durations.append(elapsed_ms)
+                completed += 1
+                now_mono = asyncio.get_running_loop().time()
+                if isinstance(state, dict):
+                    state["scan_progress_completed"] = completed
+                    state["scan_progress_symbol"] = pair
+                    state["scan_progress_updated_at"] = utc_iso(utc_now())
                 logger.info(
                     f"SCAN_SYMBOL_TIMING engine={engine} pair={pair} "
                     f"duration_ms={elapsed_ms} outcome={outcome}"
                 )
+                if completed == len(pairs) or completed % 10 == 0 or now_mono - last_progress_log >= 30:
+                    last_progress_log = now_mono
+                    logger.info(
+                        f"SCAN_PROGRESS engine={engine} completed={completed}/{len(pairs)} "
+                        f"current_symbol={pair} elapsed_seconds={now_mono - started:.1f}"
+                    )
 
         # DeltaExchangeRest applies a five-request semaphore. Scheduling the symbol
         # tasks concurrently lets that limit work instead of serializing markets
