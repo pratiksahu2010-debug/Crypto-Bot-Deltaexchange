@@ -87,11 +87,11 @@ def test_normal_and_momentum_candle_cursors_are_independent():
     assert engine.normal_scoring is not engine.momentum_scoring
 
 
-def test_fixed_symbol_universe_ignores_turnover_but_requires_active_status(monkeypatch):
+def test_fixed_symbol_universe_enforces_turnover_floors_and_active_status(monkeypatch):
     import asyncio
     from exchange.symbol_manager import SymbolManager
 
-    # Static allowlist order is retained regardless of turnover. LOW is
+    # Static allowlist order is retained among liquid members. LOW is
     # intentionally present only in this fixture; OFF is exchange-inactive.
     monkeypatch.setattr(
         SymbolManager, "_load_yaml",
@@ -124,8 +124,8 @@ def test_fixed_symbol_universe_ignores_turnover_but_requires_active_status(monke
     async def run():
         manager = SymbolManager(FakeRest())
         await manager.load_and_validate()
-        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
         assert manager.liquidity["B-ETH_USDT"] == 200.0
         assert manager.liquidity["B-LOW_USDT"] == 1.0
         assert "B-OFF_USDT" not in manager.valid_pairs
