@@ -100,6 +100,19 @@ def _normal_threshold_gates(
     }
 
 
+def _normal_extension_gate(indicators: Dict[str, Any], max_extension_atr: float) -> bool:
+    """Reject a Normal trigger only when price is overextended from EMA9 in ATR units."""
+    try:
+        extension = float(indicators.get("ema_extension_atr"))
+        limit = float(max_extension_atr)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return bool(
+        np.isfinite(extension) and np.isfinite(limit)
+        and extension >= 0.0 and limit > 0.0 and extension <= limit
+    )
+
+
 def _normal_relative_volume_gate(
     indicators: Dict[str, Any], direction: str, min_rvol: float
 ) -> Dict[str, bool]:
@@ -1085,6 +1098,11 @@ class SignalEngine:
             gates = _normal_threshold_gates(
                 indicators, direction, settings.normal_adx_min,
                 strategy=strategy,
+            )
+            # The configured EMA9-distance limit is a derived indicator safeguard
+            # against chasing an already-extended trigger candle.
+            gates["not_chasing"] = _normal_extension_gate(
+                indicators, settings.normal_max_extension_atr,
             )
             # RVOL is optional: when disabled it remains diagnostic data only.
             if settings.normal_rvol_gate_enabled:

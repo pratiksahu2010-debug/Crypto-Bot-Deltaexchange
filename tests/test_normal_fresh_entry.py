@@ -228,3 +228,19 @@ def test_normal_engine_enforces_adx_floor_of_25_even_if_configured_lower():
     }
     assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_25"] is False
     assert _normal_threshold_gates({**indicators, "adx": 25.0}, "LONG", 20.0)["adx_min_25"] is True
+
+
+@pytest.mark.parametrize(
+    "extension,limit,expected",
+    [
+        (0.80, 0.80, True),
+        (0.79, 0.80, True),
+        (0.81, 0.80, False),
+        (float("nan"), 0.80, False),
+        (0.20, 0.0, False),
+    ],
+)
+def test_normal_extension_gate_enforces_configured_atr_limit(extension, limit, expected):
+    from core.engine import _normal_extension_gate
+
+    assert _normal_extension_gate({"ema_extension_atr": extension}, limit) is expected
