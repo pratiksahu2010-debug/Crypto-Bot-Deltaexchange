@@ -131,7 +131,23 @@ async def claim_signal_once(signal: dict, candle_time_ms: int, ttl_hours: int = 
     if factory is None:
         logger.error("Persistent signal deduplication unavailable; suppressing alert")
         return False
-    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+    indicators = signal.get("indicators") or {}
+    is_orb = (
+        signal.get("engine") == "momentum"
+        and str(signal.get("strategy", "")).startswith("ORB_")
+        and indicators.get("orb_session")
+        and indicators.get("orb_session_open_local")
+    )
+    if is_orb:
+        # One LONG and one SHORT per pair/session-open; distinct sessions
+        # and overlapping London/New York ranges never share this lock.
+        key = (
+            f"ORB:{signal['pair']}:{indicators['orb_session']}:"
+            f"{indicators['orb_session_open_local']}:{signal['direction']}"
+        )
+        ttl_hours = max(48, int(ttl_hours))
+    else:
+        key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires = now + timedelta(hours=max(1, int(ttl_hours)))
     values = dict(dedup_key=key, candle_time_ms=int(candle_time_ms),
@@ -373,7 +389,18 @@ async def release_signal_claim(signal: dict, candle_time_ms: int) -> bool:
     factory = database_db.SessionLocal
     if factory is None:
         return False
-    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+    indicators = signal.get("indicators") or {}
+    is_orb = (
+        signal.get("engine") == "momentum"
+        and str(signal.get("strategy", "")).startswith("ORB_")
+        and indicators.get("orb_session")
+        and indicators.get("orb_session_open_local")
+    )
+    key = (
+        f"ORB:{signal['pair']}:{indicators['orb_session']}:"
+        f"{indicators['orb_session_open_local']}:{signal['direction']}"
+        if is_orb else f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+    )
     async with factory() as session:
         try:
             await session.execute(delete(SignalDedupRecord).where(SignalDedupRecord.dedup_key == key))
