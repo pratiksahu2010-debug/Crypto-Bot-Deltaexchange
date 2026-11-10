@@ -1365,7 +1365,6 @@ class SignalEngine:
             "candle_time_ms": candle_ts,
             "candle_close_time_ms": candle_close_ms,
             "signal_age_seconds": round(candle_age_seconds(int(utc_now().timestamp() * 1000), candle_ts, primary_interval_ms), 1),
-            "confirm_candle_time_ms": confirm_candle_time_ms,
         }
         if risk:
             signal["risk"] = {
@@ -1826,13 +1825,13 @@ class SignalEngine:
             f"CANDLE_EVAL pair={pair} engine={engine} direction={direction} "
             f"decision={decision} strategy={strategy} "
             f"candle_open_ms={candle_ts} candle_close_ms={candle_close_ms} "
-            f"confirm_15m_open_ms={confirm_candle_time_ms} age_seconds={age:.1f} "
+            f"age_seconds={age:.1f} "
             f"close={value('close')} ema9={value('ema9')} ema21={value('ema21')} "
             f"ema50={value('ema50')} vwap={value('vwap')} rsi={value('rsi')} "
             f"adx={value('adx')} plus_di={value('plus_di')} minus_di={value('minus_di')} "
             f"macd_hist={value('macd_hist')} rvol={value('rvol')} atr_pct={value('atr_pct')} "
             f"ema_extension_atr={value('ema_extension_atr')} "
-            f"confirm_15m={value('confirm_15m')} adx_rising={value('adx_rising')} "
+            f"adx_rising={value('adx_rising')} "
             f"score={score if score is not None else 'NA'} "
             f"score_parts=[{score_parts}] failed={','.join(failed) if failed else 'none'}"
         )

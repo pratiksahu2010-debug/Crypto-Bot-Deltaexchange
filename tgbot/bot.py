@@ -178,7 +178,6 @@ class TelegramBot:
         # Keep the alternate sequential-signal engine readable and include IST.
         if engine == "SIGNALS":
             step = signal.get("step") or {}
-            context = signal.get("context_15m") or {}
             quality = signal.get("quality") or {}
             candle_utc = signal.get("candle_time_ms")
             try:
@@ -192,7 +191,7 @@ class TelegramBot:
                 f"<b>SIGNAL TYPE:</b> SEQUENTIAL",
                 f"<b>ENGINE:</b> SEQUENTIAL",
                 f"<b>STRATEGY:</b> {safe(strategy)}",
-                f"<b>TIMEFRAME:</b> 5M | <b>CONFIRM:</b> 15M",
+                f"<b>TIMEFRAME:</b> 5M (PRIMARY)",
                 f"<b>CANDLE TIME (IST):</b> {safe(candle_ist)}",
                 f"<b>CANDLE TIME (UTC):</b> {safe(candle_utc_text)}",
                 "",
@@ -207,7 +206,6 @@ class TelegramBot:
                 f"<b>STOP LOSS:</b> {safe(_num(risk.get('stop_loss')))}",
                 f"<b>TP1:</b> {safe(_num(risk.get('tp1')))} | <b>TP2:</b> {safe(_num(risk.get('tp2')))}",
                 f"<b>STEP EVENT:</b> {safe(step.get('event', 'n/a'))}",
-                f"<b>15M CONTEXT:</b> {safe(context.get('state', 'UNAVAILABLE'))}",
                 f"<b>RVOL:</b> {safe(_num(quality.get('rvol'), 2))}",
                 f"<b>SIGNAL AGE:</b> {safe(signal.get('signal_age_seconds', 'n/a'))} seconds",
                 "",
@@ -248,7 +246,6 @@ class TelegramBot:
 
         candle_open = signal.get("candle_time_ms")
         candle_close = signal.get("candle_close_time_ms")
-        context_open = signal.get("confirm_candle_time_ms")
 
         def ms_stamp(value: Any, ist: bool = False) -> str:
             try:
@@ -272,7 +269,6 @@ class TelegramBot:
             f"<b>CANDLE OPEN (IST):</b> {safe(ms_stamp(candle_open, True))}",
             f"<b>CANDLE CLOSE:</b> {safe(ms_stamp(candle_close))}",
             f"<b>CANDLE CLOSE (IST):</b> {safe(ms_stamp(candle_close, True))}",
-            f"<b>15M CONTEXT OPEN (IST):</b> {safe(ms_stamp(context_open, True))}",
             f"<b>ENTRY CHECKED (IST):</b> {safe(stamp(signal.get('entry_checked_at')))}",
             f"<b>SIGNAL GENERATED (IST):</b> {safe(stamp(signal.get('timestamp')))}",
             f"<b>SIGNAL AGE:</b> {safe(signal.get('signal_age_seconds', 'n/a'))} seconds",
