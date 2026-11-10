@@ -258,7 +258,7 @@ class TelegramBot:
 
         rows += [
             "<b>MARKET INDICATORS</b>",
-            f"<b>TIMEFRAME:</b> 5M | <b>CONFIRM:</b> 15M",
+            f"<b>TIMEFRAME:</b> 5M (PRIMARY)",
             f"<b>EMA 9/21:</b> {safe(_num(ind.get('ema9')))} / {safe(_num(ind.get('ema21')))}",
             f"<b>RSI:</b> {safe(_num(ind.get('rsi'), 2))} | <b>ADX:</b> {safe(_num(ind.get('adx'), 2))}",
             f"<b>ATR%:</b> {safe(_num(ind.get('atr_pct'), 3))} | <b>RVOL:</b> {safe(_num(ind.get('rvol'), 2))}",
