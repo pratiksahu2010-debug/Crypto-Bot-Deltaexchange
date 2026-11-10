@@ -444,7 +444,6 @@ async def test_websocket_resubscribes_when_active_symbol_universe_changes():
     assert not stream._connected_event.is_set()
     assert stream._channels == {
         "candlestick_5m": ["BTCUSD", "ETHUSD"],
-        "candlestick_15m": ["BTCUSD", "ETHUSD"],
     }
 
     # Repeating the same active universe does not churn the socket.

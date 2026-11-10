@@ -363,19 +363,22 @@ def test_stale_market_quarantine_filters_both_engine_universes_and_restores(monk
     asyncio.run(run())
 
 
-def test_stale_market_quarantine_requires_repeated_or_both_timeframes():
+def test_stale_market_quarantine_requires_repeated_primary_timeframe_observations():
     from exchange.symbol_manager import SymbolManager
 
     class FakeRest:
         def __init__(self):
-            self.stale = {"B-ONE_USDT": {"5m": 1}, "B-TWO_USDT": {"5m": 1, "15m": 1}}
+            self.stale = {
+                "B-ONE_USDT": {"5m": 1},
+                "B-TWO_USDT": {"5m": 1, "15m": 3},
+            }
         def get_stale_market_timeframes(self):
             return self.stale
 
     manager = SymbolManager(FakeRest())
     manager._refresh_quarantine_from_rest()
     assert "B-ONE_USDT" not in manager._quarantined
-    assert "B-TWO_USDT" in manager._quarantined
+    assert "B-TWO_USDT" not in manager._quarantined
     manager.rest.stale["B-ONE_USDT"]["5m"] = 2
     manager._refresh_quarantine_from_rest()
     assert "B-ONE_USDT" in manager._quarantined
