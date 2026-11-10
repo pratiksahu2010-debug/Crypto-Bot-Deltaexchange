@@ -5,7 +5,7 @@ from exchange.delta_rest import DeltaExchangeRest
 
 @pytest.mark.asyncio
 async def test_candle_feed_reports_gaps_duplicates_future_and_invalid_rows(monkeypatch):
-    now = 1_800_000_000 + 1800
+    now = 1_800_000_000 + 1830  # allow the newest completed 5m candle's grace period
     monkeypatch.setattr("exchange.delta_rest.time.time", lambda: now)
     client = DeltaExchangeRest()
     client._canonical_to_delta = {"B-BTC_USDT": "BTCUSD"}

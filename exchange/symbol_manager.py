@@ -355,9 +355,11 @@ class SymbolManager:
         now = __import__("time").time()
         for pair, timeframe_counts in (stale or {}).items():
             relevant = {tf: int(count) for tf, count in timeframe_counts.items() if tf in required}
+            # A single required timeframe is not evidence of a persistent
+            # outage. Quarantine only after at least two stale observations
+            # for a required feed; secondary timeframes are intentionally ignored.
             repeated = any(count >= 2 for count in relevant.values())
-            both_required = required.issubset(relevant.keys())
-            if not (repeated or both_required):
+            if not repeated:
                 continue
             reason = "repeated stale candle data: " + ", ".join(
                 f"{tf} (observed {count}x)" for tf, count in sorted(relevant.items())
