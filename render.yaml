@@ -52,10 +52,6 @@ services:
         value: "40"
       - key: MOMENTUM_SYMBOL_LIMIT
         value: "100"
-      - key: NORMAL_MIN_24H_TURNOVER_USDT
-        value: "1000000"
-      - key: MOMENTUM_MIN_24H_TURNOVER_USDT
-        value: "500000"
       - key: CANDLE_CLOSE_GRACE_SECONDS
         value: "3"
       - key: TELEGRAM_BOT_TOKEN
