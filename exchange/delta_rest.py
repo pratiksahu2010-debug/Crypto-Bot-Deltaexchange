@@ -39,6 +39,9 @@ class DeltaExchangeRest:
         self._client: Optional[httpx.AsyncClient] = None
         self._semaphore = asyncio.Semaphore(5)
         self._candle_cache = {}
+        # Serialize identical symbol/timeframe fetches so concurrent scanners
+        # share the first request's short-lived cache result instead of fanning out.
+        self._candle_locks: Dict[tuple, asyncio.Lock] = {}
         self._ticker_snapshot = None
         self._ticker_snapshot_at = 0.0
         self._ticker_lock = asyncio.Lock()
@@ -416,6 +419,30 @@ class DeltaExchangeRest:
                     self._candle_cache.pop(key, None)
 
     async def get_candles(self, pair: str, interval="5m", limit=200, start_time=None, end_time=None):
+        lock_key = (
+            str(pair).upper(), str(interval),
+            int(limit) if isinstance(limit, (int, float)) and not isinstance(limit, bool) else str(limit),
+            start_time, end_time,
+        )
+        lock = self._candle_locks.get(lock_key)
+        if lock is None:
+            lock = self._candle_locks.setdefault(lock_key, asyncio.Lock())
+        async with lock:
+            try:
+                return await self._get_candles_uncached(
+                    pair, interval, limit=limit,
+                    start_time=start_time, end_time=end_time,
+                )
+            finally:
+                # Keep the lock map bounded without removing a lock another
+                # coroutine may currently be waiting on.
+                if len(self._candle_locks) > 1000:
+                    self._candle_locks = {
+                        key: value for key, value in self._candle_locks.items()
+                        if value.locked() or key == lock_key
+                    }
+
+    async def _get_candles_uncached(self, pair: str, interval="5m", limit=200, start_time=None, end_time=None):
         track = start_time is None and end_time is None
         if isinstance(limit, bool) or (isinstance(limit, float) and not limit.is_integer()):
             raise ValueError("Candle limit must be an integer between 1 and 1000")
