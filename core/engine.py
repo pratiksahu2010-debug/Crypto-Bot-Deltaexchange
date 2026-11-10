@@ -698,8 +698,8 @@ class SignalEngine:
         state["scan_progress_updated_at"] = utc_iso(utc_now())
         logger.info(
             "SCAN_STARTUP_STAGE stage=websocket_sync "
-            f"normal_symbols={len(self.symbols.normal_symbols)} "
-            f"momentum_symbols={len(self.symbols.momentum_symbols)}"
+            f"normal_symbols={len(getattr(self.symbols, 'normal_symbols', []) or [])} "
+            f"momentum_symbols={len(getattr(self.symbols, 'momentum_symbols', []) or [])}"
         )
         await self._sync_websocket_universe(app)
 
