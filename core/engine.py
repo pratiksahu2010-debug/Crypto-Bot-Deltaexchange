@@ -980,6 +980,9 @@ class SignalEngine:
         vwap_v = vwap(high[day_idx:], low[day_idx:], close[day_idx:], volume[day_idx:], period=None)
         rvol = relative_volume(volume, 20)
         atr_pct = (atr_v / close[-1] * 100) if atr_v and close[-1] else None
+        # Latest completed candle's full high-low range, used by downstream
+        # quality diagnostics and momentum expansion scoring.
+        candle_range = max(0.0, float(high[-1]) - float(low[-1]))
         adx_series = None
         adx_rising = False
         if len(close) >= 3:
