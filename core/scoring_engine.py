@@ -161,10 +161,9 @@ class ScoringEngine:
             f"RSI {rsi_value:.1f} supports direction" if rsi_ok else "RSI not directionally aligned")
 
         adx_value = values.get("adx")
-        adx_ok = adx_value is not None and adx_value >= 20.0
-        adx_points = 2.0 if adx_ok and adx_value >= 25.0 else 1.5 if adx_ok else 0.0
-        add("ADX 14", adx_points, 2.0, adx_value,
-            f"ADX {adx_value:.1f}; minimum 20" if adx_ok else "ADX below 20")
+        adx_ok = adx_value is not None and adx_value >= 25.0
+        add("ADX 14", 2.0 if adx_ok else 0.0, 2.0, adx_value,
+            f"ADX {adx_value:.1f}; minimum 25" if adx_ok else "ADX below 25")
 
         atr_value = values.get("atr")
         atr_ok = atr_value is not None and atr_value > 0

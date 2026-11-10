@@ -27,3 +27,13 @@ def test_two_risk_reward_and_opposing_pivot_room_do_not_reject_signals():
 
 def test_normal_engine_does_not_use_macd_as_a_required_indicator():
     assert 'macd_res = macd(close) if engine == "momentum" else None' in ENGINE
+
+
+def test_normal_adx_does_not_need_to_be_rising_or_reach_30():
+    assert 'gates["adx_rising_or_strong"]' not in ENGINE
+    assert 'gates["di_alignment"]' in ENGINE
+
+
+def test_normal_score_is_diagnostic_not_a_second_signal_threshold():
+    assert 'engine == "normal" and result.total < max(7.0' not in ENGINE
+    assert 'if engine == "momentum" and result.total < 5.5' in ENGINE

@@ -1097,10 +1097,8 @@ class SignalEngine:
                 minus_di = float(indicators.get("minus_di"))
             except (TypeError, ValueError, OverflowError):
                 adx_value = plus_di = minus_di = float("nan")
-            gates["adx_rising_or_strong"] = bool(
-                np.isfinite(adx_value)
-                and (indicators.get("adx_rising") is True or adx_value >= 30.0)
-            )
+            # ADX >= the configured floor is the strength requirement.
+            # Rising/ADX >= 30 is not an extra veto; it delays valid entries.
             gates["di_alignment"] = bool(
                 np.isfinite(plus_di) and np.isfinite(minus_di)
                 and (plus_di > minus_di if direction == "LONG" else minus_di > plus_di)
@@ -1311,18 +1309,8 @@ class SignalEngine:
             f"{c.name}:{c.points:g}/{c.max_points:g}" for c in result.components
         )
 
-        # Enforce the configured quality floor for both engines. The Normal
-        # engine's hard gates are necessary but not sufficient without score quality.
-        if engine == "normal" and result.total < max(7.0, float(settings.signal_threshold)):
-            self._log_candle_evaluation(
-                pair, engine, direction, candle_ts, candle_close_ms,
-                confirm_candle_time_ms, indicators, "REJECT",
-                failed=[f"score_below_min_{max(7.0, float(settings.signal_threshold)):.2f}"],
-                strategy=strategy, score=result.total, score_parts=score_parts,
-            )
-            self._last_processed.setdefault(engine, {})[pair] = candle_ts
-            return
-
+        # Normal score is diagnostic after its explicit indicator gates.
+        # SIGNAL_THRESHOLD belongs to Momentum, not the Normal engine.
         if engine == "momentum" and result.total < 5.5:
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
