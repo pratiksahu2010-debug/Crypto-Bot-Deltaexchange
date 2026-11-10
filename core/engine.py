@@ -60,6 +60,24 @@ def _score_disposition(score: float, signal_threshold: float) -> str:
     return "REJECT"
 
 
+def _momentum_entry_gates(
+    state: str, atr_value: Any, ema_extension_atr: Any,
+) -> Dict[str, bool]:
+    """Apply only shared validity and anti-chase checks after each detector qualifies."""
+    try:
+        atr_number = float(atr_value)
+        extension = float(ema_extension_atr)
+    except (TypeError, ValueError, OverflowError):
+        atr_number = extension = float("nan")
+    return {
+        "momentum_state": state in VALID_MOMENTUM_STATES,
+        "anti_chase": bool(
+            np.isfinite(atr_number) and atr_number > 0
+            and np.isfinite(extension) and 0.0 <= extension <= 2.0
+        ),
+    }
+
+
 def _normal_threshold_gates(
     indicators: Dict[str, Any], direction: str, adx_min: float = 20.0,
     strategy: Optional[str] = None,
@@ -1259,52 +1277,12 @@ class SignalEngine:
                     f"structure_break={indicators.get('structure_break')} "
                     f"bw_expand={indicators.get('bw_expand')}"
                 )
-            valid_momentum_state = momentum_state in VALID_MOMENTUM_STATES
-            breakout_extension = indicators.get("orb_breakout_extension_atr")
-            if momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"):
-                momentum_entry_actionable = (
-                    breakout_extension is not None and breakout_extension <= 0.80
-                    and extension <= 2.00
-                )
-            else:
-                # Momentum ignition is indicator-led; do not require a
-                # separate swing-structure break or candle-shape condition.
-                momentum_entry_actionable = bool(atr_v and atr_v > 0 and extension <= 2.0)
-            momentum_gates = {
-                "momentum_state": valid_momentum_state,
-                "macd_direction": bool(
-                    indicators["macd_direction_ok"]
-                    or momentum_state in ("EXPLOSION", "ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
-                    or (
-                        momentum_state == "SQUEEZE_RELEASE"
-                        and indicators.get("roc_direction_ok") is True
-                        and indicators.get("bw_expand") is True
-                    )
-                    or momentum_state == "PRE_EXPLOSION_SIGNAL"
-                ),
-                # A 15m close, DI cross and large candle body can lag the move.
-                # A structure break no longer bypasses extension protection.
-                "anti_chase_and_breakout_extension": bool(momentum_entry_actionable),
-            }
-            if momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"):
-                try:
-                    orb_adx = float(adx_v)
-                    orb_plus_di = float(plus_di)
-                    orb_minus_di = float(minus_di)
-                except (TypeError, ValueError, OverflowError):
-                    orb_adx = orb_plus_di = orb_minus_di = float("nan")
-                momentum_gates.update({
-                    "orb_rvol": bool(np.isfinite(rvol) and rvol >= max(1.4, settings.orb_min_rvol)),
-                    "orb_adx_strength": bool(
-                        np.isfinite(orb_adx) and orb_adx >= max(20.0, settings.orb_adx_min)
-                        and (adx_rising or orb_adx >= 30.0)
-                    ),
-                    "orb_di_alignment": bool(
-                        np.isfinite(orb_plus_di) and np.isfinite(orb_minus_di)
-                        and (orb_plus_di > orb_minus_di if direction == "LONG"
-                             else orb_minus_di > orb_plus_di)
-                    ),
-                })
+            # Each Momentum/ORB detector owns its directional indicator rules.
+            # Do not add a universal MACD, ADX/DI or duplicate RVOL veto here:
+            # that would narrow valid detector states and delay early breakouts.
+            momentum_gates = _momentum_entry_gates(
+                momentum_state, atr_v, extension,
+            )
             failed = [name for name, passed in momentum_gates.items() if not passed]
             if failed:
                 self._log_candle_evaluation(
