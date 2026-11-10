@@ -639,8 +639,22 @@ class SignalEngine:
             f"next_scan_utc={next_scan_utc} "
             f"max_signal_age_seconds={settings.max_signal_age_seconds}"
         )
-        if delay > 0:
-            await asyncio.sleep(delay)
+        # Keep the event loop observable during a long boundary wait. This
+        # also makes Render logs useful even when no candles/signals are emitted.
+        remaining = delay
+        while remaining > 0:
+            chunk = min(30.0, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+            state = getattr(getattr(getattr(self, "_app", None), "state", None), "bot_state", None)
+            if isinstance(state, dict):
+                state["scan_stage"] = "waiting_for_candle_boundary"
+                state["scan_progress_updated_at"] = utc_iso(utc_now())
+            if remaining > 0:
+                logger.info(
+                    f"SCAN_HEARTBEAT stage=waiting_for_candle_boundary "
+                    f"remaining_seconds={remaining:.1f}"
+                )
 
     async def _sync_websocket_universe(self, app: Any) -> None:
         app_state = getattr(app, "state", None) if app is not None else None
