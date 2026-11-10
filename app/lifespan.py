@@ -259,9 +259,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     retest_task = None
     telegram_delivery_task = None
     if database_ready:
+        logger.info("BACKGROUND_TASK_START task=signal-scan-loop stage=preflight")
         scan_task = asyncio.create_task(engine.run_scan_loop(app), name="signal-scan-loop")
         retest_task = asyncio.create_task(engine.pending_retest_monitor_loop(interval_seconds=2.0), name="pending-retest-loop")
-        app.state.bot_state["scan_task_status"] = "running"
+        # Scanner remains "starting" until universe refresh, WebSocket sync,
+        # and the first completed-candle boundary have all succeeded.
+        app.state.bot_state["scan_task_status"] = "starting"
+        app.state.bot_state["scan_stage"] = "task_created"
+        app.state.bot_state["scan_stage_started_at"] = datetime.now(timezone.utc).isoformat()
         app.state.bot_state["retest_task_status"] = "running"
         _watch_background_task(scan_task, app.state.bot_state, "scan_task")
         _watch_background_task(retest_task, app.state.bot_state, "retest_task")
