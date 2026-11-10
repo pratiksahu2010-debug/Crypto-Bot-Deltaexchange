@@ -381,6 +381,14 @@ class SymbolManager:
         excluded = set(self._quarantined)
 
         def select(rank: List[str], label: str, limit: int) -> List[str]:
+            for pair in rank:
+                if pair not in excluded and self._as_positive(self.liquidity.get(pair)) <= 0:
+                    key = self._norm(pair)
+                    self.whitelist_diagnostics.setdefault(key, {
+                        "configured_symbol": key,
+                        "status": "LIQUIDITY_UNKNOWN",
+                        "reason": "turnover telemetry unavailable; static member retained",
+                    })
             chosen = [pair for pair in rank if pair not in excluded][:max(0, int(limit))]
             logger.info(
                 f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
