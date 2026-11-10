@@ -1,7 +1,7 @@
 """Indicator-only Normal Engine triggers and UTC-session VWAP.
 
 The Normal strategy is deliberately limited to EMA(9/21), session VWAP,
-RSI(14), ADX(14), ATR(14), and 15-minute EMA(9/21) context. Candle colour,
+RSI(14), ADX(14), and ATR(14). Candle colour,
 body size, wick shape, volume, order-book data and risk outputs are not entry
 indicators for this engine.
 """

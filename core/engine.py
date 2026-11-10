@@ -1383,8 +1383,8 @@ class SignalEngine:
                 "invalidation": risk.invalidation,
             }
 
-        # Normal signals pass explicit indicator/participation and entry checks plus
-        # the configured Normal score floor; Momentum has its own score disposition.
+        # Normal signals pass explicit indicator/optional participation and
+        # actionable-entry checks; their score is diagnostic. Momentum has its own disposition.
         disposition = (
             "SIGNAL" if engine == "normal"
             else _score_disposition(result.total, settings.signal_threshold)
@@ -1695,6 +1695,17 @@ class SignalEngine:
             if utc_now().timestamp() >= float(pending.get("expires_at", 0)):
                 await remove("expired")
                 continue
+            # Normal retests must obey the same completed-candle freshness
+            # budget as first-pass Normal alerts. The longer retest TTL is only
+            # a storage upper bound; it must never authorize a stale entry.
+            if engine == "normal":
+                signal_age = candle_age_seconds(
+                    int(utc_now().timestamp() * 1000), int(pending.get("candle_ts", 0)),
+                    int(parse_interval(settings.candle_primary_tf).total_seconds() * 1000),
+                )
+                if signal_age < 0 or signal_age > int(settings.normal_max_signal_age_seconds):
+                    await remove("signal_stale")
+                    continue
             try:
                 live_price = await self.rest.get_last_price(pair)
                 self.pending_retest_checks += 1
