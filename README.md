@@ -39,10 +39,13 @@ Normal does not require a 15-minute context, rising ADX, ADX of 30, second-candl
 
 ### Opening Range Breakout (ORB)
 
-- Separate ORB detector for UTC reset, Sydney, Tokyo, London, New York and CME sessions.
-- Each 15-minute opening range is defined by exactly three completed 5-minute candles. This is the ORB range definition, not a higher-timeframe confirmation gate.
-- ORB qualification uses its own range validity, EMA 9/21, session VWAP, RSI, MACD histogram/acceleration, ROC, RVOL, breakout-age and breakout-extension checks.
-- ADX trend status is diagnostic, not a universal ORB veto. There is no extra shared ADX-rising/ADX-30, DI-alignment or duplicate RVOL gate.
+- Crypto ORB runs 24/7 at four documented session opens: Asia/Daily UTC 00:00, London 08:00 Europe/London, New York 09:30 America/New_York, and optional Late US 16:00 America/New_York.
+- Each session builds its own 30-minute opening range from exactly six completed 5-minute candles. OR High/Low are the highest high and lowest low across those six candles.
+- London and New York use IANA time zones, so summer/winter DST shifts are automatic. Asia remains fixed at 00:00 UTC.
+- Asia trades until 04:30 UTC; London and New York trade for four hours after their range closes; optional Late US trades for three hours after its range closes.
+- Every session has an independent opening-range calculation, session-anchored VWAP, and RVOL baseline calculated only from volume since that session's open. Overlapping London/New York windows remain independent.
+- ORB alerts require a completed 5-minute close outside that session's own range, at least three directional indicator checks (EMA 9/21 or session VWAP must agree), and session RVOL at or above ORB_MIN_RVOL. No pre-breakout alerts are emitted.
+- A symbol can produce at most one LONG and one SHORT ORB alert per session date; this session/direction lock is durable in the database.
 
 ## Shared signal, risk and delivery behavior
 
