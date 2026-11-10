@@ -131,7 +131,7 @@ async def claim_signal_once(signal: dict, candle_time_ms: int, ttl_hours: int = 
     if factory is None:
         logger.error("Persistent signal deduplication unavailable; suppressing alert")
         return False
-    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+    key = f"{signal['pair']}:{signal.get('engine', 'legacy')}:{signal['direction']}:{int(candle_time_ms)}"
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires = now + timedelta(hours=max(1, int(ttl_hours)))
     values = dict(dedup_key=key, candle_time_ms=int(candle_time_ms),
@@ -373,7 +373,7 @@ async def release_signal_claim(signal: dict, candle_time_ms: int) -> bool:
     factory = database_db.SessionLocal
     if factory is None:
         return False
-    key = f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+    key = f"{signal['pair']}:{signal.get('engine', 'legacy')}:{signal['direction']}:{int(candle_time_ms)}"
     async with factory() as session:
         try:
             await session.execute(delete(SignalDedupRecord).where(SignalDedupRecord.dedup_key == key))
@@ -388,6 +388,7 @@ async def release_signal_claim(signal: dict, candle_time_ms: int) -> bool:
 async def enqueue_signal_deliveries(signal: dict, recipient_ids: list[int]) -> int:
     """Persist one independent Telegram outbox item per recipient."""
     import json
+    import math
     from datetime import datetime, timedelta, timezone
     from sqlalchemy import select
     from database import db as database_db
@@ -399,15 +400,21 @@ async def enqueue_signal_deliveries(signal: dict, recipient_ids: list[int]) -> i
     if factory is None or engine is None or not recipient_ids:
         return 0
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    # A confirmed retest is a fresh live-price event even though its
-    # originating candle may be several minutes old. Give it a fresh delivery
-    # window; ordinary candle-close signals consume their remaining age budget.
-    if signal.get("entry_type") == "RETEST_CONFIRMED":
-        remaining = int(settings.max_signal_age_seconds)
+    # Every engine keeps its own entry-age budget. A retest does not reset
+    # candle age: it must consume only the freshness time still remaining.
+    max_age = int(
+        settings.normal_max_signal_age_seconds
+        if signal.get("engine") == "normal"
+        else settings.max_signal_age_seconds
+    )
+    try:
+        signal_age = float(signal.get("signal_age_seconds", 0))
+    except (TypeError, ValueError, OverflowError):
+        signal_age = float("nan")
+    if not math.isfinite(signal_age) or signal_age < 0:
+        remaining = 0
     else:
-        remaining = int(
-            settings.max_signal_age_seconds - float(signal.get("signal_age_seconds", 0))
-        )
+        remaining = int(max_age - signal_age)
     if remaining <= 0:
         logger.warning(
             "Telegram outbox rejected stale signal pair=%s age_seconds=%s",
