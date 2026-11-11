@@ -189,26 +189,29 @@ class ScoringEngine:
             compression, "Squeeze active/released" if compression else "No squeeze state")
 
         atr_exp = values.get("atr_expansion")
-        atr_points = 1.25 if atr_exp is not None and atr_exp >= 1.0 else 0.0
-        add("ATR Expansion", atr_points, 1.25, atr_exp, "ATR expansion state" if atr_points else "ATR not expanding")
+        atr_floor = 1.03 if values.get("compression_active") is True else 1.08
+        atr_points = 1.25 if atr_exp is not None and atr_exp >= atr_floor else 0.0
+        add("ATR Expansion", atr_points, 1.25, atr_exp, f"ATR expansion meets {atr_floor:.2f}x state threshold" if atr_points else f"ATR expansion below {atr_floor:.2f}x")
 
         rvol = values.get("rvol")
-        rvol_points = 1.25 if rvol is not None and rvol >= 1.10 else 0.0
-        add("Relative Volume", rvol_points, 1.25, rvol, "Relative volume rising" if rvol_points else "Relative volume low")
+        rvol_floor = 1.20 if values.get("compression_active") is True else 1.25
+        rvol_points = 1.25 if rvol is not None and rvol >= rvol_floor else 0.0
+        add("Relative Volume", rvol_points, 1.25, rvol, f"RVOL meets {rvol_floor:.2f}x state threshold" if rvol_points else f"RVOL below {rvol_floor:.2f}x")
 
         ema_ok = bool(values.get("ema_aligned"))
         add("EMA Alignment", 1.5 if ema_ok else 0.0, 1.5, ema_ok,
             "EMA trend aligned" if ema_ok else "EMA trend not aligned")
 
-        macd_ok = bool(values.get("macd_direction_ok") or values.get("macd_accel"))
+        macd_ok = bool(values.get("macd_direction_ok"))
         add("MACD Direction/Acceleration", 1.5 if macd_ok else 0.0, 1.5, macd_ok,
             "MACD supports direction" if macd_ok else "MACD not aligned")
 
         rsi_value = values.get("rsi")
-        rsi_ok = rsi_value is not None and (rsi_value >= 52 if is_long else rsi_value <= 48)
-        rsi_accel = bool(values.get("rsi_accel"))
-        add("RSI Momentum", 1.0 if (rsi_ok or rsi_accel) else 0.0, 1.0,
-            rsi_value, "RSI supports directional momentum" if (rsi_ok or rsi_accel) else "RSI momentum absent")
+        rsi_floor = 54.0 if values.get("compression_active") is True else 55.0
+        rsi_ceiling = 46.0 if values.get("compression_active") is True else 45.0
+        rsi_ok = rsi_value is not None and (rsi_value >= rsi_floor if is_long else rsi_value <= rsi_ceiling)
+        add("RSI Momentum", 1.0 if rsi_ok else 0.0, 1.0,
+            rsi_value, "RSI supports directional momentum" if rsi_ok else "RSI momentum absent")
 
         roc_ok = bool(values.get("roc_direction_ok"))
         add("ROC Direction", 1.5 if roc_ok else 0.0, 1.5, values.get("roc"),
@@ -315,12 +318,12 @@ class ScoringEngine:
             "Volatility compression/release present" if squeeze else "No squeeze state")
 
         atr_exp = values.get("atr_expansion")
-        atr_ok = atr_exp is not None and atr_exp >= 1.05
+        atr_ok = atr_exp is not None and atr_exp >= 1.08
         add("ATR Expansion", 1.5 if atr_ok else 0.0, 1.5, atr_exp,
             "Volatility expanding" if atr_ok else "ATR expansion absent")
 
         rvol = values.get("rvol")
-        volume_ok = rvol is not None and rvol >= 1.10
+        volume_ok = rvol is not None and rvol >= 1.25
         add("Relative Volume", 1.5 if volume_ok else 0.0, 1.5, rvol,
             "Participation expanding" if volume_ok else "Relative volume low")
 
@@ -328,14 +331,14 @@ class ScoringEngine:
         add("EMA Alignment", 1.5 if ema_ok else 0.0, 1.5, ema_ok,
             "EMA trend aligned" if ema_ok else "EMA trend not aligned")
 
-        macd_ok = bool(values.get("macd_direction_ok") or values.get("macd_accel"))
+        macd_ok = bool(values.get("macd_direction_ok"))
         add("MACD", 1.5 if macd_ok else 0.0, 1.5, macd_ok,
             "MACD direction/acceleration aligned" if macd_ok else "MACD not aligned")
 
         rsi_value = values.get("rsi")
-        rsi_ok = rsi_value is not None and (rsi_value > 50 if is_long else rsi_value < 50)
-        add("RSI", 1.0 if (rsi_ok or values.get("rsi_accel") is True) else 0.0, 1.0,
-            rsi_value, "RSI momentum aligned" if (rsi_ok or values.get("rsi_accel") is True) else "RSI not aligned")
+        rsi_ok = rsi_value is not None and (rsi_value >= 55 if is_long else rsi_value <= 45)
+        add("RSI", 1.0 if rsi_ok else 0.0, 1.0,
+            rsi_value, "RSI momentum aligned" if rsi_ok else "RSI not aligned")
 
         roc_ok = bool(values.get("roc_direction_ok"))
         add("ROC", 1.5 if roc_ok else 0.0, 1.5, values.get("roc"),
