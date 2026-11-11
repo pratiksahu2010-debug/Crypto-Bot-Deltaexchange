@@ -165,7 +165,7 @@ def build_context(
             compression_age=_compression_age(h[tail], l[tail], c[tail]),
         )
         if sessions:
-            completed = {"time": times[done], "high": h, "low": l}
+            completed = {"time": times[done], "open": o, "high": h, "low": l, "close": c}
             for session in sessions:
                 rng = orb_detector.opening_range(completed, session, now_ms, orb_active_minutes)
                 if rng.get("state") != "READY":
