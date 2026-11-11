@@ -105,9 +105,10 @@ class CandleBuilder:
         # historical gaps, while a forming candle already received from WS
         # must not be discarded by a concurrent warm-up/backfill request.
         merged = {int(c["time"]): dict(c) for c in staged.candles}
+        rest_latest_ts = max(merged)
         for existing in buf.candles:
             ts = int(existing["time"])
-            if ts not in merged or ts > max(merged):
+            if ts not in merged or ts > rest_latest_ts:
                 merged[ts] = dict(existing)
         replacement = CandleBuffer(buf.max_len)
         for ts in sorted(merged):
@@ -137,11 +138,12 @@ class CandleBuilder:
         import time
 
         interval_ms = int(parse_interval(tf).total_seconds() * 1000)
+        grace_ms = max(0, int(settings.candle_close_grace_seconds)) * 1000
         current_ms = int(now_ms if now_ms is not None else time.time() * 1000)
         arrays = self.get_arrays(pair, tf)
         if not arrays or not len(arrays.get("time", [])):
             return {}
-        mask = arrays["time"] + interval_ms <= current_ms
+        mask = arrays["time"] + interval_ms + grace_ms <= current_ms
         if not np.any(mask):
             return {}
         return {key: values[mask] for key, values in arrays.items()}
