@@ -1723,7 +1723,7 @@ class SignalEngine:
             zone_low, zone_high = risk.entry_zone_low, risk.entry_zone_high
             entry_state = (
                 "RETEST"
-                if strategy == "ORB_PULLBACK_PENDING"
+                if strategy == "ORB_PULLBACK_PENDING" and live_price is not None
                 else classify_entry_state(live_price, risk.entry, zone_low, zone_high, direction)
                 if live_price is not None else "EXPIRED"
             )
