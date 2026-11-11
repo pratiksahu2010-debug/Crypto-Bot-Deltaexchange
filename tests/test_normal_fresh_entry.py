@@ -215,7 +215,10 @@ def test_normal_adx_and_rvol_gates_do_not_require_15m_context():
     assert _normal_relative_volume_gate(indicators, "LONG", 1.2) == {
         "relative_volume": True,
     }
-    assert not _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_25"]
+    assert _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_25"]
+    assert not _normal_threshold_gates(
+        {**indicators, "adx": 24.99, "adx_rising": False}, "LONG", 22.0
+    )["adx_min_25"]
     # A 1.2 configured floor must not be silently raised to 1.4.
     assert _normal_relative_volume_gate(
         {**indicators, "rvol": 1.39}, "LONG", 1.2
