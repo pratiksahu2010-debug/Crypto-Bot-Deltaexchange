@@ -140,8 +140,8 @@ def test_fixed_symbol_universe_preserves_allowlist_and_active_status(monkeypatch
 def test_dynamic_symbol_universe_excludes_stablecoin_pairs(monkeypatch):
     import asyncio
     from exchange.symbol_manager import SymbolManager
-    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 1.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 1.0)
+    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 2.0)
+    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 2.0)
 
     class FakeRest:
         async def get_market_details(self):
