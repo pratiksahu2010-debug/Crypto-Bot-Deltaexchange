@@ -171,7 +171,7 @@ def opening_range(candles, session="london", now_ms=None, active_minutes=None):
 def evaluate(
     candles, atr_value, rvol=None, session="london", min_rvol=1.10,
     max_extension_atr=1.50, active_minutes=None, adx_value=None,
-    plus_di=None, minus_di=None, adx_rising=False, adx_min=18.0,
+    plus_di=None, minus_di=None, adx_rising=False, adx_min=20.0,
     max_breakout_age_candles=2,
 ):
     """Evaluate one independent session ORB using completed 5-minute candles."""
