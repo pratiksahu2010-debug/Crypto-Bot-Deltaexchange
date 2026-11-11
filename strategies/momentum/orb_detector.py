@@ -333,6 +333,7 @@ def evaluate(
             breakout_extension_atr=round(extension, 4),
             range_width_atr=round(width_atr, 4),
             breakout_age_candles=breakout_age,
+            range_candles=len(indexes),
             session_rvol=round(session_rvol, 4),
             rvol_baseline=round(baseline, 8),
             session_vwap=session_vwap,
