@@ -66,8 +66,8 @@ class LiveConfig:
     def from_settings(cls, settings: Any) -> "LiveConfig":
         defaults = cls()
         sessions: List[str] = []
-        for name, flag in (("london", "orb_london_enabled"), ("new_york", "orb_new_york_enabled"),
-                           ("asia", "orb_asia_enabled")):
+        for name, flag in (("asia", "orb_asia_enabled"), ("london", "orb_london_enabled"),
+                           ("new_york", "orb_new_york_enabled"), ("late_us", "orb_late_us_enabled")):
             if getattr(settings, flag, True):
                 sessions.append(name)
         if not getattr(settings, "orb_enabled", True) or not getattr(settings, "live_orb_enabled", True):
