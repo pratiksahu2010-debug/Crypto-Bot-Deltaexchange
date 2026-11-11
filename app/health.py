@@ -440,6 +440,20 @@ async def status(request: Request) -> Dict[str, Any]:
     }
 
 
+@router.get("/performance")
+async def performance(days: int = 7) -> Dict[str, Any]:
+    """Read-only strategy outcome report for delivered signals."""
+    window_days = max(1, min(int(days), 365))
+    from database.repositories import signal_performance_report
+    report = await signal_performance_report(window_days)
+    return {
+        "ok": True,
+        "window_days": window_days,
+        "scope": "delivered_signals_only",
+        **report,
+    }
+
+
 @router.get("/metrics")
 async def metrics(request: Request) -> Dict[str, Any]:
     app_state = getattr(request.app.state, "bot_state", {})
