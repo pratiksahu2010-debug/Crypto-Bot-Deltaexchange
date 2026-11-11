@@ -376,3 +376,17 @@ def test_normal_scoring_gives_partial_adx_credit_only_for_rising_directional_ban
 
     full = engine.score_normal({**base, "adx": 25.0}, "LONG")
     assert next(c for c in full.components if c.name == "ADX 14").points == 2.0
+
+
+
+def test_normal_adx_early_band_respects_stricter_configured_floor():
+    engine = ScoringEngine()
+    base = {
+        "close": 102.0, "ema9": 101.0, "ema21": 100.0, "vwap": 101.0,
+        "adx": 27.0, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
+        "rsi": 57.0, "atr": 0.5,
+    }
+    score = engine.score_normal(base, "LONG", adx_min=30.0)
+    assert next(c for c in score.components if c.name == "ADX 14").points == 1.0
+    full = engine.score_normal({**base, "adx": 30.0}, "LONG", adx_min=30.0)
+    assert next(c for c in full.components if c.name == "ADX 14").points == 2.0
