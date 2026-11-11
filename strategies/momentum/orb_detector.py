@@ -180,7 +180,7 @@ def evaluate(
     candles, atr_value, rvol=None, session="london", min_rvol=1.10,
     max_extension_atr=1.50, active_minutes=None, adx_value=None,
     plus_di=None, minus_di=None, adx_rising=False, adx_min=20.0,
-    max_breakout_age_candles=2,
+    max_breakout_age_candles=2, max_pullback_extension_atr=1.50,
 ):
     """Evaluate one independent session ORB using completed 5-minute candles."""
     try:
@@ -400,14 +400,33 @@ def evaluate(
                 break
             breakout_age += 1
 
-        # Stage 3: allow a direct continuation or a clean retest. A retest is
-        # optional; fast breakouts are never forced to wait for one.
+        # Stage 3: immediate entries are limited to max_extension_atr.
+        # A valid but later breakout (up to max_pullback_extension_atr) is
+        # retained as a pullback candidate; the engine must wait for price to
+        # return to its planned entry zone before alerting. This catches strong
+        # moves without chasing an already-extended close.
+        try:
+            immediate_extension_limit = float(max_extension_atr)
+        except (TypeError, ValueError, OverflowError):
+            immediate_extension_limit = 0.80
+        if not isfinite(immediate_extension_limit) or immediate_extension_limit <= 0:
+            immediate_extension_limit = 0.80
+        try:
+            pullback_extension_limit = float(max_pullback_extension_atr)
+        except (TypeError, ValueError, OverflowError):
+            pullback_extension_limit = 1.50
+        if not isfinite(pullback_extension_limit):
+            pullback_extension_limit = 1.50
+        pullback_extension_limit = max(immediate_extension_limit, pullback_extension_limit)
+
         if breakout_age > int(max_breakout_age_candles):
             state = "STALE_BREAKOUT"
-        elif retest_touch and extension <= max(1.0, float(max_extension_atr)):
-            state = "ORB_RETEST"
-        elif extension > float(max_extension_atr):
+        elif extension > pullback_extension_limit + 1e-9:
             state = "EXTENDED_BREAKOUT"
+        elif retest_touch:
+            state = "ORB_RETEST"
+        elif extension > immediate_extension_limit + 1e-9:
+            state = "ORB_PULLBACK_PENDING"
         else:
             state = "ORB_BREAKOUT"
 
@@ -416,6 +435,9 @@ def evaluate(
             range_high=range_high, range_low=range_low,
             breakout_level=edge,
             breakout_extension_atr=round(extension, 4),
+            immediate_extension_limit_atr=round(immediate_extension_limit, 4),
+            pullback_extension_limit_atr=round(pullback_extension_limit, 4),
+            pullback_required=state == "ORB_PULLBACK_PENDING",
             range_width_atr=round(width_atr, 4),
             breakout_age_candles=breakout_age,
             range_candles=len(indexes),
