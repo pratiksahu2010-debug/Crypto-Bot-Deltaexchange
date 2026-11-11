@@ -104,7 +104,7 @@ def test_fixed_symbol_universe_preserves_allowlist_and_active_status(monkeypatch
     )
 
     monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 500.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 100.0)
+    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 100_001.0)
 
     class FakeRest:
         async def get_market_details(self):
