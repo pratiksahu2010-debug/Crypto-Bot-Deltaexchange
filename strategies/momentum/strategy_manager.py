@@ -39,30 +39,49 @@ def detect_momentum_state(indicators: Dict[str, Any]) -> str:
 
 
 def is_pre_explosion_signal(indicators: Dict[str, Any]) -> bool:
-    """Early alert only when compression, direction and acceleration all agree."""
+    """Stage 1: surface early ignition before every lagging indicator aligns."""
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
         return False
     rvol = _number(indicators, "rvol", -1.0)
     expansion = _number(indicators, "atr_expansion", -1.0)
-    rsi = _number(indicators, "rsi", -1.0)
     adx = _number(indicators, "adx", -1.0)
-    plus_di = _number(indicators, "plus_di", -1.0)
-    minus_di = _number(indicators, "minus_di", -1.0)
-    if rvol < 1.20 or expansion < 1.03 or adx < 18.0:
+    if rvol < 1.10 or expansion < 1.0:
         return False
-    if min(plus_di, minus_di) < 0:
+    adx_rising = _flag(indicators, "adx_rising")
+    if adx < 18.0 and not (adx >= 14.0 and adx_rising):
         return False
-    di_ok = plus_di > minus_di if direction == "LONG" else minus_di > plus_di
-    rsi_ok = rsi >= 54.0 if direction == "LONG" else rsi <= 46.0
-    if not di_ok or not rsi_ok or not _flag(indicators, "compression_active"):
+    if not _flag(indicators, "compression_active"):
         return False
 
-    # A pre-release setup still needs a directional trend plus acceleration.
-    directional = (
-        _flag(indicators, "ema_aligned")
-        and _flag(indicators, "roc_direction_ok")
-        and _flag(indicators, "macd_direction_ok")
+    plus_di = _number(indicators, "plus_di", -1.0)
+    minus_di = _number(indicators, "minus_di", -1.0)
+    di_available = plus_di >= 0 and minus_di >= 0
+    di_ok = (
+        (plus_di > minus_di if direction == "LONG" else minus_di > plus_di)
+        if di_available else False
     )
-    acceleration = _flag(indicators, "macd_accel") or _flag(indicators, "rsi_accel")
-    return bool(directional and acceleration)
+
+    # Two of three directional signals are enough to keep an early candidate
+    # alive; one acceleration source must also be present.
+    directional_votes = sum((
+        _flag(indicators, "ema_aligned"),
+        _flag(indicators, "roc_direction_ok"),
+        _flag(indicators, "macd_direction_ok"),
+    ))
+    acceleration = (
+        _flag(indicators, "macd_accel")
+        or _flag(indicators, "rsi_accel")
+        or _flag(indicators, "bw_expand")
+    )
+    rsi = _number(indicators, "rsi", -1.0)
+    rsi_ok = rsi >= 52.0 if direction == "LONG" else rsi <= 48.0
+
+    # If DI is temporarily opposed, require rising ADX and all three
+    # directional votes. Otherwise DI remains useful confirmation, not a veto.
+    di_conflict_ok = di_ok or (adx_rising and directional_votes == 3)
+    return bool(
+        directional_votes >= 2 and acceleration
+        and (rsi_ok or directional_votes == 3)
+        and di_conflict_ok
+    )
