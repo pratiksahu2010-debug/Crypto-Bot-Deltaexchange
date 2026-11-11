@@ -245,13 +245,13 @@ def test_normal_rsi_scoring_matches_directional_midline_gate():
 
 def test_orb_scoring_uses_indicator_edge_proximity_not_candle_shape():
     result = ScoringEngine().score_orb({
-        "rvol": 1.8, "close": 98.0, "vwap": 99.0,
+        "rvol": 1.8, "orb_session_rvol": 1.8, "orb_rolling_rvol": 1.8, "close": 98.0, "vwap": 99.0,
         "ema9": 99.0, "ema21": 100.0, "rsi": 42.0, "atr": 0.5,
         "orb_breakout_extension_atr": 0.0,
         "macd_direction_ok": True, "roc_direction_ok": True,
     }, "SHORT")
-    proximity = next(c for c in result.components if c.name == "ORB Edge Proximity")
-    assert proximity.points == 1.0
+    extension = next(c for c in result.components if c.name == "ORB Breakout Extension")
+    assert extension.points == 0.75
 
 
 def test_normal_adx_score_uses_only_the_adx_threshold():
