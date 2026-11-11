@@ -121,3 +121,11 @@ def test_normal_adx_floor_cannot_be_lowered_below_25(monkeypatch):
 
     monkeypatch.setattr(settings, "normal_adx_min", 18.0)
     assert _normal_adx_floor(settings.normal_adx_min) == 25.0
+
+
+def test_candle_buffer_must_hold_full_indicator_history(monkeypatch):
+    from core.engine import PRIMARY_CANDLE_HISTORY
+
+    monkeypatch.setattr(settings, "max_candles_buffer", PRIMARY_CANDLE_HISTORY - 1)
+    with pytest.raises(ValueError, match="MAX_CANDLES_BUFFER must be at least"):
+        validate_runtime_config()
