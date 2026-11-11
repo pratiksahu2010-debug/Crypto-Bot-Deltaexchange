@@ -74,7 +74,7 @@ if HAS_PYDANTIC:
         orb_enabled: bool = Field(default=True, alias="ORB_ENABLED")
         orb_london_enabled: bool = Field(default=True, alias="ORB_LONDON_ENABLED")
         orb_new_york_enabled: bool = Field(default=True, alias="ORB_NEW_YORK_ENABLED")
-        orb_min_rvol: float = Field(default=1.4, alias="ORB_MIN_RVOL")
+        orb_min_rvol: float = Field(default=1.5, alias="ORB_MIN_RVOL")
         orb_adx_min: float = Field(default=20.0, alias="ORB_ADX_MIN")
         orb_max_extension_atr: float = Field(default=0.80, alias="ORB_MAX_EXTENSION_ATR")
         orb_active_minutes: int = Field(default=180, alias="ORB_ACTIVE_MINUTES")
