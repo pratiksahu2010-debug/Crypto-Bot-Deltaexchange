@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 
 from strategies.momentum.orb_detector import evaluate, opening_range, SESSIONS
+from core.scoring_engine import ScoringEngine
 
 
 def _stamp(dt):
@@ -17,10 +18,10 @@ def candles_for(session="london", direction="LONG", last_open_minute=30):
     start = datetime.combine(day, spec["open"], tzinfo=tz)
     # 48 completed bars before the session anchor provide indicator history.
     times = [start - timedelta(minutes=5 * (48 - i)) for i in range(48)]
-    # Exactly six completed 5m candles form the 30-minute opening range.
-    times += [start + timedelta(minutes=m) for m in (0, 5, 10, 15, 20, 25)]
-    # The final row opens after the range has closed.
-    if last_open_minute >= 30:
+    # Exactly one completed 5m candle forms the opening range.
+    times += [start]
+    # The final row opens immediately after the 5-minute range has closed.
+    if last_open_minute >= 5:
         times += [start + timedelta(minutes=last_open_minute)]
 
     if direction == "LONG":
@@ -32,20 +33,13 @@ def candles_for(session="london", direction="LONG", last_open_minute=30):
     low = np.minimum(open_, close) - 0.10
     volume = np.full(len(times), 100.0)
 
-    # A separate, consistent 6-bar range for this session.
+    # The first completed candle alone defines the opening range.
     range_start = 48
-    range_bars = [
-        (100.0, 100.8, 99.8, 100.5),
-        (100.5, 101.0, 100.2, 100.7),
-        (100.7, 101.1, 100.4, 100.9),
-        (100.9, 101.0, 100.3, 100.6),
-        (100.6, 100.9, 100.1, 100.5),
-        (100.5, 100.8, 100.0, 100.4),
-    ]
-    for j, values in enumerate(range_bars, start=range_start):
-        open_[j], high[j], low[j], close[j] = values
+    open_[range_start], high[range_start], low[range_start], close[range_start] = (
+        100.0, 100.8, 99.8, 100.5
+    )
 
-    if last_open_minute >= 30:
+    if last_open_minute >= 5:
         last = len(times) - 1
         if direction == "LONG":
             open_[last], high[last], low[last], close[last] = 101.2, 102.2, 101.1, 102.0
@@ -68,17 +62,17 @@ def test_only_four_documented_sessions_are_enabled_by_default_catalogue():
     assert SESSIONS["late_us"]["timezone"] == "America/New_York"
 
 
-def test_opening_range_requires_all_six_completed_candles():
-    data = candles_for("london", last_open_minute=25)
-    now_before_close = _stamp(datetime(2026, 6, 2, 8, 29, tzinfo=ZoneInfo("Europe/London")))
+def test_opening_range_uses_one_completed_five_minute_candle():
+    data = candles_for("london", last_open_minute=5)
+    now_before_close = _stamp(datetime(2026, 6, 2, 8, 4, tzinfo=ZoneInfo("Europe/London")))
     result = opening_range(data, "london", now_ms=now_before_close)
     assert result["state"] == "BUILDING_RANGE"
 
-    now_after_close = _stamp(datetime(2026, 6, 2, 8, 30, tzinfo=ZoneInfo("Europe/London")))
+    now_after_close = _stamp(datetime(2026, 6, 2, 8, 5, tzinfo=ZoneInfo("Europe/London")))
     result = opening_range(data, "london", now_ms=now_after_close)
     assert result["state"] == "READY"
-    assert result["range_candles"] == 6
-    assert result["range_high"] == 101.1
+    assert result["range_candles"] == 1
+    assert result["range_high"] == 100.8
     assert result["range_low"] == 99.8
 
 
@@ -89,6 +83,7 @@ def test_london_long_orb_requires_completed_close_beyond_30m_range():
     assert result["range_end_local"].endswith("08:30:00+01:00")
     assert result["session_rvol"] >= 1.4
     assert result["indicator_confirmation"]["passed"] >= 3
+    assert result["range_candles"] == 1
 
 
 def test_new_york_short_orb_is_directionally_mirrored():
@@ -99,7 +94,7 @@ def test_new_york_short_orb_is_directionally_mirrored():
 
 
 def test_no_prebreakout_signal_inside_range():
-    data = candles_for("london", "LONG", last_open_minute=25)
+    data = candles_for("london", "LONG", last_open_minute=0)
     result = evaluate(data, 0.8, session="london")
     assert result["state"] in ("BUILDING_RANGE", "INSIDE_RANGE")
     assert result.get("direction") is None
@@ -117,12 +112,39 @@ def test_london_and_new_york_anchors_shift_with_dst():
 def test_session_trade_windows_match_specification():
     asia = candles_for("asia", "LONG")
     asia_result = evaluate(asia, 0.8, session="asia")
-    assert asia_result["session_end_utc_ms"] - asia_result["session_start_utc_ms"] == 270 * 60_000
+    assert asia_result["range_end_utc_ms"] - asia_result["session_start_utc_ms"] == 5 * 60_000
+    assert asia_result["session_end_utc_ms"] - asia_result["session_start_utc_ms"] == 245 * 60_000
 
     london = candles_for("london", "LONG")
     london_result = evaluate(london, 0.8, session="london")
-    assert london_result["session_end_utc_ms"] - london_result["session_start_utc_ms"] == 270 * 60_000
+    assert london_result["range_end_utc_ms"] - london_result["session_start_utc_ms"] == 5 * 60_000
+    assert london_result["session_end_utc_ms"] - london_result["session_start_utc_ms"] == 245 * 60_000
 
     late = candles_for("late_us", "LONG")
     late_result = evaluate(late, 0.8, session="late_us")
-    assert late_result["session_end_utc_ms"] - late_result["session_start_utc_ms"] == 210 * 60_000
+    assert late_result["range_end_utc_ms"] - late_result["session_start_utc_ms"] == 5 * 60_000
+    assert late_result["session_end_utc_ms"] - late_result["session_start_utc_ms"] == 185 * 60_000
+
+
+def test_orb_score_uses_session_rvol_and_detector_extension_limit():
+    score = ScoringEngine().score_orb({
+        "rvol": 0.2, "orb_session_rvol": 1.45,
+        "ema9": 102, "ema21": 101, "close": 102,
+        "orb_vwap": 101, "rsi": 58, "macd_direction_ok": True,
+        "roc_direction_ok": True, "atr": 1.0,
+        "orb_breakout_extension_atr": 0.70,
+    }, "LONG", min_rvol=1.4, max_extension_atr=0.8)
+    components = {item.name: item for item in score.components}
+    assert components["ORB Session RVOL"].points == 1.5
+    assert components["ORB Breakout Extension"].points == 1.0
+    assert components["ORB Session RVOL"].value == 1.45
+
+
+def test_orb_score_never_substitutes_general_rvol_for_session_rvol():
+    score = ScoringEngine().score_orb({
+        "rvol": 5.0, "orb_session_rvol": None,
+        "orb_breakout_extension_atr": 0.8,
+    }, "LONG", min_rvol=1.4, max_extension_atr=0.8)
+    components = {item.name: item for item in score.components}
+    assert components["ORB Session RVOL"].points == 0.0
+    assert components["ORB Breakout Extension"].points == 1.0
