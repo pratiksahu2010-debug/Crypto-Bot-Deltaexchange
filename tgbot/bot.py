@@ -131,7 +131,7 @@ class TelegramBot:
         await update.message.reply_text("Active signals are pushed live when generated.")
 
     def format_signal(self, signal: Dict[str, Any]) -> str:
-        """Format alerts as compact HTML with prominent symbol, side, prices and IST times."""
+        """Format compact HTML alerts without candle-timing metadata."""
         from html import escape
 
         def safe(value: Any) -> str:
@@ -161,7 +161,7 @@ class TelegramBot:
         grade = signal.get("grade", "")
         price = signal.get("price")
 
-        # Keep the alternate sequential-signal engine readable and include IST.
+        # Keep the alternate sequential-signal engine readable and compact.
         if engine == "SIGNALS":
             step = signal.get("step") or {}
             quality = signal.get("quality") or {}
