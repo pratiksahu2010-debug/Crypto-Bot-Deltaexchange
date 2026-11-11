@@ -1,4 +1,4 @@
-"""Directional momentum confirmation using MACD, ROC and EMA alignment."""
+"""Strict directional Momentum continuation confirmation."""
 import math
 
 
@@ -10,23 +10,27 @@ def _number(indicators, key):
     return value if math.isfinite(value) else None
 
 
-def _flag(indicators, key):
-    value = indicators.get(key)
-    return value is True or (type(value).__name__ == "bool_" and bool(value))
-
-
 def evaluate(indicators):
     rvol = _number(indicators, "rvol")
     expansion = _number(indicators, "atr_expansion")
     rsi = _number(indicators, "rsi")
+    adx = _number(indicators, "adx")
+    plus_di = _number(indicators, "plus_di")
+    minus_di = _number(indicators, "minus_di")
     direction = str(indicators.get("direction", "")).upper()
-    if direction not in ("LONG", "SHORT") or None in (rvol, expansion, rsi):
+    if direction not in ("LONG", "SHORT") or None in (
+        rvol, expansion, rsi, adx, plus_di, minus_di
+    ):
         return False
-    if rvol < 1.10 or expansion < 1.02:
+    if rvol < 1.25 or expansion < 1.08 or adx < 20.0:
         return False
-    rsi_ok = rsi >= 50.0 if direction == "LONG" else rsi <= 50.0
+    directional = (
+        plus_di > minus_di if direction == "LONG" else minus_di > plus_di
+    )
+    rsi_ok = rsi >= 55.0 if direction == "LONG" else rsi <= 45.0
     return bool(
-        rsi_ok and
-        (_flag(indicators, "macd_direction_ok") or _flag(indicators, "roc_direction_ok")) and
-        (_flag(indicators, "ema_aligned") or _flag(indicators, "macd_accel"))
+        directional and rsi_ok
+        and indicators.get("macd_direction_ok") is True
+        and indicators.get("roc_direction_ok") is True
+        and indicators.get("ema_aligned") is True
     )
