@@ -441,7 +441,16 @@ async def test_performance_endpoint_reports_strategy_outcomes_and_clamps_window(
             },
         }
 
+    async def fake_candidate_report(days):
+        assert days == 365
+        return {
+            "available": True,
+            "scope": "orb_mex_candidates_only",
+            "groups": {"MEX:PRE_EXPLOSION": {"count": 4, "active": 2}},
+        }
+
     monkeypatch.setattr(repositories, "signal_performance_report", fake_report)
+    monkeypatch.setattr(repositories, "strategy_candidate_performance_report", fake_candidate_report)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/performance?days=999")
@@ -452,4 +461,6 @@ async def test_performance_endpoint_reports_strategy_outcomes_and_clamps_window(
     assert data["scope"] == "delivered_signals_only"
     assert data["groups"]["momentum:EXPLOSION"]["count"] == 12
     assert data["groups"]["momentum:ORB_BREAKOUT"]["false_breakout_rate"] == 0.125
+    assert data["candidate_outcomes"]["scope"] == "orb_mex_candidates_only"
+    assert data["candidate_outcomes"]["groups"]["MEX:PRE_EXPLOSION"]["count"] == 4
 
