@@ -110,8 +110,8 @@ class SignalManager:
         self._evict()
         return item.get("status") == "active"
 
-    def _find(self, pair, engine, direction, signal_id=None):
-        matches = self._matching(pair, engine, direction)
+    def _find(self, pair, engine, direction, signal_id=None, strategy=None):
+        matches = self._matching(pair, engine, direction, strategy)
         if signal_id is not None:
             return next((s for s in matches if s.get("signal_id") == signal_id), None)
         active = [s for s in matches if s.get("status") == "active"]
@@ -142,8 +142,8 @@ class SignalManager:
         sig["status"] = "invalidated"
         return True
 
-    def get(self, pair, engine, direction, signal_id=None):
-        return self._find(pair, engine, direction, signal_id)
+    def get(self, pair, engine, direction, signal_id=None, strategy=None):
+        return self._find(pair, engine, direction, signal_id, strategy)
 
     def list_active(self, engine=None):
         self._purge()
