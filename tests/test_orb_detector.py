@@ -54,8 +54,8 @@ def candles_for(session="london", direction="LONG", last_open_minute=5):
     }
 
 
-def test_only_four_documented_sessions_are_enabled_by_default_catalogue():
-    assert set(SESSIONS) == {"asia", "london", "new_york", "late_us"}
+def test_documented_orb_sessions_are_enabled_by_default_catalogue():
+    assert set(SESSIONS) == {"asia", "sydney", "cme", "london", "new_york", "late_us"}
     assert SESSIONS["asia"]["timezone"] == "UTC"
     assert SESSIONS["london"]["timezone"] == "Europe/London"
     assert SESSIONS["new_york"]["timezone"] == "America/New_York"
