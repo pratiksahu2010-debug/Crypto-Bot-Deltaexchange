@@ -424,11 +424,14 @@ class SymbolManager:
                 # Move the deadline first so concurrent refreshes cannot probe twice.
                 self._quarantined[pair]["retry_at"] = time.time() + self._quarantine_retry_seconds
                 try:
-                    primary = await self.rest.get_candles(pair, primary_tf, limit=100)
+                    required_history = 300
+                    primary = await self.rest.get_candles(
+                        pair, primary_tf, limit=required_history
+                    )
                     stale_getter = getattr(self.rest, "get_stale_market_timeframes", None)
                     stale_for_pair = (stale_getter() or {}).get(pair, {}) if callable(stale_getter) else {}
                     primary_stale = primary_tf in stale_for_pair
-                    if len(primary) >= 50 and not primary_stale:
+                    if len(primary) >= required_history and not primary_stale:
                         self._quarantined.pop(pair, None)
                         logger.info(
                             f"MARKET_RESTORED {pair} fresh_{primary_tf}={len(primary)}"
@@ -436,7 +439,7 @@ class SymbolManager:
                     else:
                         item = self._quarantined[pair]
                         item["reason"] = (
-                            f"retry still unhealthy: {primary_tf}={len(primary)} candles, "
+                            f"retry still unhealthy: {primary_tf}={len(primary)}/{required_history} candles, "
                             f"stale={primary_stale}"
                         )
                         retry_at = datetime.fromtimestamp(item["retry_at"], tz=timezone.utc).isoformat()
