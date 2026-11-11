@@ -997,9 +997,28 @@ class SignalEngine:
                 pair, engine,
             )
             return
+        interval_seconds = parse_interval(primary).total_seconds()
+        if settings.enable_websocket:
+            feed_ages = getattr(websocket, "symbol_feed_age_seconds", {}) or {}
+            pair_ages = feed_ages.get(pair, {}) if isinstance(feed_ages, dict) else {}
+            feed_age = pair_ages.get(primary) if isinstance(pair_ages, dict) else None
+            max_feed_age = (
+                interval_seconds + max_signal_age
+                + max(0, settings.candle_close_grace_seconds)
+            )
+            try:
+                feed_age = float(feed_age)
+            except (TypeError, ValueError, OverflowError):
+                feed_age = float("inf")
+            if not np.isfinite(feed_age) or feed_age > max_feed_age:
+                logger.info(
+                    "MARKET_DATA_SKIP pair=%s engine=%s reason=symbol_websocket_feed_stale age=%s max_age=%.1f",
+                    pair, engine, feed_age, max_feed_age,
+                )
+                return
 
         arr = self.candles.get_completed_arrays(pair, primary)
-        interval_ms = int(parse_interval(primary).total_seconds() * 1000)
+        interval_ms = int(interval_seconds * 1000)
         need_backfill = not arr or len(arr.get("close", [])) < PRIMARY_CANDLE_HISTORY
         if arr and len(arr.get("time", [])):
             timestamps = np.asarray(arr["time"], dtype=np.int64)
