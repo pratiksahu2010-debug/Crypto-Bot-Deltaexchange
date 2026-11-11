@@ -267,7 +267,7 @@ def test_normal_adx_score_uses_only_the_adx_threshold():
     weaker_adx = next(c for c in weaker.components if c.name == "ADX 14")
     assert weaker_adx.points == 0.0
     assert not weaker_adx.valid
-    assert "below 20" in weaker_adx.explanation
+    assert "below 25" in weaker_adx.explanation
 
 
 def test_momentum_macd_direction_scores_without_candle_body():
