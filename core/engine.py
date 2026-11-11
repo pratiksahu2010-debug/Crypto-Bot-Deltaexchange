@@ -1822,10 +1822,8 @@ class SignalEngine:
             if (price <= stop if direction == "LONG" else price >= stop):
                 await remove("stop_invalidated")
                 continue
-            existing_signal = self.signals[engine].get(pair, engine, direction)
             if (
-                (existing_signal and existing_signal.get("status") == "active"
-                 and not existing_signal.get("tp1_hit"))
+                not self.signals[engine].can_reenter(signal)
                 or self.cooldowns[engine].is_cooling(pair, engine, direction)
             ):
                 await remove("active_signal_or_cooldown")
@@ -1987,7 +1985,9 @@ class SignalEngine:
             for level in hits:
                 self.signals[engine].mark_tp(pair, engine, direction, level, sig.get("signal_id"))
             if hits:
-                current = self.signals[engine].get(pair, engine, direction) or sig
+                current = self.signals[engine].get(
+                    pair, engine, direction, sig.get("signal_id")
+                ) or sig
                 status = current.get("status", "active")
                 try:
                     from database.repositories import update_signal_record, record_signal_outcome
