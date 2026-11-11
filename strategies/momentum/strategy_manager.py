@@ -1,4 +1,4 @@
-"""Momentum regime dispatcher: pre-ignition, release and continuation."""
+"""Momentum regime dispatcher: strict pre-ignition, release and continuation."""
 import math
 from typing import Dict, Any
 from . import explosion_detector, squeeze_detector, volatility_expansion, volume_expansion, momentum_indicators
@@ -39,28 +39,30 @@ def detect_momentum_state(indicators: Dict[str, Any]) -> str:
 
 
 def is_pre_explosion_signal(indicators: Dict[str, Any]) -> bool:
-    """Early alert while volatility remains compressed, before a full range burst."""
+    """Early alert only when compression, direction and acceleration all agree."""
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
         return False
     rvol = _number(indicators, "rvol", -1.0)
     expansion = _number(indicators, "atr_expansion", -1.0)
     rsi = _number(indicators, "rsi", -1.0)
-    if rvol < 1.10 or expansion < 1.0:
+    adx = _number(indicators, "adx", -1.0)
+    plus_di = _number(indicators, "plus_di", -1.0)
+    minus_di = _number(indicators, "minus_di", -1.0)
+    if rvol < 1.20 or expansion < 1.03 or adx < 18.0:
         return False
-    rsi_ok = rsi >= 52.0 if direction == "LONG" else 0.0 <= rsi <= 48.0
-    if not rsi_ok or not _flag(indicators, "compression_active"):
+    if min(plus_di, minus_di) < 0:
         return False
-    # Two independent directional clues: at least one trend/price-momentum
-    # state plus one acceleration state. No candle geometry is used.
-    direction_ok = (
+    di_ok = plus_di > minus_di if direction == "LONG" else minus_di > plus_di
+    rsi_ok = rsi >= 54.0 if direction == "LONG" else rsi <= 46.0
+    if not di_ok or not rsi_ok or not _flag(indicators, "compression_active"):
+        return False
+
+    # A pre-release setup still needs a directional trend plus acceleration.
+    directional = (
         _flag(indicators, "ema_aligned")
-        or _flag(indicators, "roc_direction_ok")
-        or _flag(indicators, "macd_direction_ok")
+        and _flag(indicators, "roc_direction_ok")
+        and _flag(indicators, "macd_direction_ok")
     )
-    acceleration_ok = (
-        _flag(indicators, "macd_accel")
-        or _flag(indicators, "rsi_accel")
-        or (_flag(indicators, "roc_direction_ok") and _flag(indicators, "ema_aligned"))
-    )
-    return bool(direction_ok and acceleration_ok)
+    acceleration = _flag(indicators, "macd_accel") or _flag(indicators, "rsi_accel")
+    return bool(directional and acceleration)
