@@ -116,3 +116,34 @@ def test_partial_target_rate_survives_later_stop(tmp_path):
             db.engine, db.SessionLocal = old_engine, old_factory
             await engine.dispose()
     asyncio.run(run())
+
+
+def test_signal_lifecycle_update_targets_only_matching_candle_after_reentry(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'signal_reentry.db'}")
+        old_engine, old_factory = db.engine, db.SessionLocal
+        db.engine = engine
+        db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            first = {
+                "pair": "B-BTC_USDT", "engine": "momentum", "direction": "LONG",
+                "strategy": "EXPLOSION", "price": 100.0,
+                "candle_time_ms": 1_800_000_000_000,
+                "expires_at": "2099-01-01T00:00:00+00:00",
+            }
+            second = {
+                **first, "candle_time_ms": 1_800_000_300_000,
+                "price": 102.0,
+            }
+            assert await repositories.save_signal(first)
+            assert await repositories.save_signal(second)
+            assert await repositories.update_signal_record(first, "closed_tp")
+            active = await repositories.load_active_signals()
+            assert len(active) == 1
+            assert active[0]["candle_time_ms"] == second["candle_time_ms"]
+        finally:
+            db.engine, db.SessionLocal = old_engine, old_factory
+            await engine.dispose()
+    asyncio.run(run())
