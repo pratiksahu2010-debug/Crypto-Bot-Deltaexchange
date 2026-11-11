@@ -19,7 +19,7 @@ async def test_candle_feed_reports_gaps_duplicates_future_and_invalid_rows(monke
 
     async def fake_get(url, params=None):
         return {"success": True, "result": [
-            row(base), row(base), row(base + 600),
+            row(base), row(base + 600), row(base),
             row(now + 600), {"time": base + 900, "open": "bad"},
         ]}
 
@@ -28,6 +28,7 @@ async def test_candle_feed_reports_gaps_duplicates_future_and_invalid_rows(monke
     assert [c["time"] for c in candles] == [base * 1000, (base + 600) * 1000]
     status = client.get_candle_feed_status()["B-BTC_USDT"]["5m"]
     assert status["duplicate_row_count"] == 1
+    assert status["out_of_order_row_count"] == 1
     assert status["missing_candle_count"] == 1
     assert status["future_row_count"] == 1
     assert status["invalid_row_count"] == 1
