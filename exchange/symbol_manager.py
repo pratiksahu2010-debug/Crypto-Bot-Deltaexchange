@@ -431,7 +431,13 @@ class SymbolManager:
                     stale_getter = getattr(self.rest, "get_stale_market_timeframes", None)
                     stale_for_pair = (stale_getter() or {}).get(pair, {}) if callable(stale_getter) else {}
                     primary_stale = primary_tf in stale_for_pair
-                    if len(primary) >= required_history and not primary_stale:
+                    status_getter = getattr(self.rest, "get_candle_feed_status", None)
+                    feed_status = (
+                        ((status_getter() or {}).get(pair, {}) or {}).get(primary_tf, {})
+                        if callable(status_getter) else {}
+                    )
+                    missing_candles = int(feed_status.get("missing_candle_count") or 0)
+                    if len(primary) >= required_history and not primary_stale and missing_candles == 0:
                         self._quarantined.pop(pair, None)
                         logger.info(
                             f"MARKET_RESTORED {pair} fresh_{primary_tf}={len(primary)}"
@@ -440,7 +446,7 @@ class SymbolManager:
                         item = self._quarantined[pair]
                         item["reason"] = (
                             f"retry still unhealthy: {primary_tf}={len(primary)}/{required_history} candles, "
-                            f"stale={primary_stale}"
+                            f"stale={primary_stale}, missing_candles={missing_candles}"
                         )
                         retry_at = datetime.fromtimestamp(item["retry_at"], tz=timezone.utc).isoformat()
                         logger.warning(
