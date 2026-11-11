@@ -356,7 +356,7 @@ class SignalEngine:
         if self.cooldowns[engine].is_cooling(pair, engine, direction):
             return
         active = self.signals[engine].get(pair, engine, direction)
-        if active and active.get("status") == "active":
+        if active and active.get("status") == "active" and not active.get("tp1_hit"):
             return
         if not live.first_attempt(pair, direction, candle_ms):
             return
@@ -484,7 +484,7 @@ class SignalEngine:
             logger.error(f"Persistent signal deduplication unavailable: {exc}")
             claimed = False
         if not claimed:
-            self.signals[engine].invalidate(pair, engine, direction)
+            self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
             return reject("duplicate_or_claim_unavailable")
 
         async def release() -> None:
@@ -1824,7 +1824,8 @@ class SignalEngine:
                 continue
             existing_signal = self.signals[engine].get(pair, engine, direction)
             if (
-                (existing_signal and existing_signal.get("status") == "active")
+                (existing_signal and existing_signal.get("status") == "active"
+                 and not existing_signal.get("tp1_hit"))
                 or self.cooldowns[engine].is_cooling(pair, engine, direction)
             ):
                 await remove("active_signal_or_cooldown")
@@ -1968,7 +1969,7 @@ class SignalEngine:
             except Exception as exc:
                 logger.warning(f"Outcome metrics update failed for {pair}: {exc}")
             if sl_hit:
-                if self.signals[engine].mark_sl(pair, engine, direction):
+                if self.signals[engine].mark_sl(pair, engine, direction, sig.get("signal_id")):
                     try:
                         from database.repositories import update_signal_record, record_signal_outcome
                         await update_signal_record(sig, "closed_sl")
@@ -1984,7 +1985,7 @@ class SignalEngine:
                 and (high >= target if direction == "LONG" else low <= target)
             ]
             for level in hits:
-                self.signals[engine].mark_tp(pair, engine, direction, level)
+                self.signals[engine].mark_tp(pair, engine, direction, level, sig.get("signal_id"))
             if hits:
                 current = self.signals[engine].get(pair, engine, direction) or sig
                 status = current.get("status", "active")
