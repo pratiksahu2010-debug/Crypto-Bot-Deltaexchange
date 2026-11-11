@@ -63,9 +63,11 @@ def diagnose(indicators: dict) -> dict:
     structure_break = _flag(indicators, "structure_break")
     trend_ok = ema_aligned or structure_break
 
-    squeeze = _flag(indicators, "squeeze_release") or _flag(indicators, "compression_active")
+    # Compression alone is Stage 1 watchlist context, not a confirmed explosion.
+    # Stage 2 needs an actual release, bandwidth expansion, or strong ATR expansion.
+    squeeze_release = _flag(indicators, "squeeze_release")
     bandwidth_expanding = _flag(indicators, "bw_expand")
-    volatility_ok = squeeze or bandwidth_expanding or expansion >= 1.12
+    volatility_ok = squeeze_release or bandwidth_expanding or expansion >= 1.12
 
     rsi = _num(indicators, "rsi")
     rsi_ok = (
