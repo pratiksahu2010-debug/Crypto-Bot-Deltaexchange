@@ -1146,6 +1146,7 @@ class SignalEngine:
         indicators["orb_session_date"] = orb_result.get("session_date")
         indicators["orb_trade_window_end_local"] = orb_result.get("trade_window_end_local")
         indicators["orb_session_rvol"] = orb_result.get("session_rvol")
+        indicators["orb_rolling_rvol"] = orb_result.get("rolling_rvol")
         indicators["orb_rvol_baseline"] = orb_result.get("rvol_baseline")
         indicators["orb_range_start_local"] = orb_result.get("range_start_local")
         indicators["orb_range_end_local"] = orb_result.get("range_end_local")
