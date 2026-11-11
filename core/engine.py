@@ -999,10 +999,22 @@ class SignalEngine:
             return
 
         arr = self.candles.get_completed_arrays(pair, primary)
+        interval_ms = int(parse_interval(primary).total_seconds() * 1000)
         need_backfill = not arr or len(arr.get("close", [])) < PRIMARY_CANDLE_HISTORY
         if arr and len(arr.get("time", [])):
+            timestamps = np.asarray(arr["time"], dtype=np.int64)
+            has_gaps = bool(
+                timestamps.size > 1
+                and np.any(np.diff(timestamps) != interval_ms)
+            )
+            if has_gaps:
+                need_backfill = True
+                logger.warning(
+                    "MARKET_DATA_GAP pair=%s tf=%s gaps=%s action=rest_backfill",
+                    pair, primary,
+                    int(np.count_nonzero(np.diff(timestamps) != interval_ms)),
+                )
             latest_ts = int(arr["time"][-1])
-            interval_ms = int(parse_interval(primary).total_seconds() * 1000)
             latest_age = candle_age_seconds(
                 int(utc_now().timestamp() * 1000), latest_ts, interval_ms
             )
@@ -1034,6 +1046,13 @@ class SignalEngine:
             arr = self.candles.get_completed_arrays(pair, primary)
 
         if not arr or len(arr.get("close", [])) < 50:
+            return
+        timestamps = np.asarray(arr["time"], dtype=np.int64)
+        if timestamps.size > 1 and np.any(np.diff(timestamps) != interval_ms):
+            logger.warning(
+                "MARKET_DATA_SKIP pair=%s tf=%s reason=unrepaired_candle_gaps",
+                pair, primary,
+            )
             return
 
         close = arr["close"]
