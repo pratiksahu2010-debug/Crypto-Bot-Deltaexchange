@@ -101,10 +101,19 @@ class CandleBuilder:
                 f"received={len(candles)} reason=no_valid_candles"
             )
             return
-        # A valid REST refresh is authoritative: replace the bounded window
-        # to remove gaps, stale rows and out-of-order websocket data.
+        # Merge the REST history with newer WebSocket updates. REST repairs
+        # historical gaps, while a forming candle already received from WS
+        # must not be discarded by a concurrent warm-up/backfill request.
+        merged = {int(c["time"]): dict(c) for c in staged.candles}
+        for existing in buf.candles:
+            ts = int(existing["time"])
+            if ts not in merged or ts > max(merged):
+                merged[ts] = dict(existing)
+        replacement = CandleBuffer(buf.max_len)
+        for ts in sorted(merged):
+            replacement.update(merged[ts])
         buf.candles.clear()
-        buf.candles.extend(staged.candles)
+        buf.candles.extend(replacement.candles)
         logger.debug(
             f"Seeded {pair} {tf} with {len(buf.candles)} valid candles "
             f"from {len(candles)} rows"
@@ -115,6 +124,27 @@ class CandleBuilder:
 
     def get_arrays(self, pair: str, tf: str) -> Dict[str, np.ndarray]:
         return self.get_buffer(pair, tf).to_arrays()
+
+    def get_completed_arrays(
+        self, pair: str, tf: str, now_ms: Optional[int] = None
+    ) -> Dict[str, np.ndarray]:
+        """Return only candles whose timeframe has fully elapsed.
+
+        Delta's WebSocket candle channel publishes the forming candle. The
+        latest buffer row is therefore not automatically safe for indicators.
+        """
+        from utils.time_utils import parse_interval
+        import time
+
+        interval_ms = int(parse_interval(tf).total_seconds() * 1000)
+        current_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+        arrays = self.get_arrays(pair, tf)
+        if not arrays or not len(arrays.get("time", [])):
+            return {}
+        mask = arrays["time"] + interval_ms <= current_ms
+        if not np.any(mask):
+            return {}
+        return {key: values[mask] for key, values in arrays.items()}
 
     def clear_pair(self, pair: str) -> None:
         self.buffers.pop(pair, None)
