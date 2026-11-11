@@ -65,7 +65,8 @@ def test_clean_long_impulse_fires_early_in_the_candle():
     assert res["state"] == "LIVE_EXPLOSION", res
     assert res["direction"] == "LONG" and res["strategy"] == "EXPLOSION"
     assert res["elapsed_seconds"] == 90.0
-    assert res["swing_low"] is None and res["score_result"].total > 0
+    assert res["swing_low"] is not None and res["swing_low"] < res["trigger_price"]
+    assert res["score_result"].total > 0
 
 
 def test_clean_short_impulse_is_mirrored():
@@ -79,7 +80,7 @@ def test_clean_short_impulse_is_mirrored():
         LiveConfig(impulse_pace=1.8),
     )
     assert res["state"] == "LIVE_EXPLOSION" and res["direction"] == "SHORT"
-    assert res["swing_high"] is None
+    assert res["swing_high"] is not None and res["swing_high"] > res["trigger_price"]
 
 
 def test_rejects_move_that_already_happened():
