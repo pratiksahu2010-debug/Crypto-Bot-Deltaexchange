@@ -11,7 +11,7 @@ def _stamp(dt):
     return int(dt.astimezone(timezone.utc).timestamp() * 1000)
 
 
-def candles_for(session="london", direction="LONG", last_open_minute=30):
+def candles_for(session="london", direction="LONG", last_open_minute=5):
     spec = SESSIONS[session]
     tz = ZoneInfo(spec["timezone"])
     day = datetime(2026, 6, 2, 12, 0, tzinfo=tz).date()
@@ -76,11 +76,11 @@ def test_opening_range_uses_one_completed_five_minute_candle():
     assert result["range_low"] == 99.8
 
 
-def test_london_long_orb_requires_completed_close_beyond_30m_range():
+def test_london_long_orb_uses_first_completed_five_minute_range():
     result = evaluate(candles_for("london", "LONG"), 0.8, session="london", min_rvol=1.4)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "LONG"
-    assert result["range_end_local"].endswith("08:30:00+01:00")
+    assert result["range_end_local"].endswith("08:05:00+01:00")
     assert result["session_rvol"] >= 1.4
     assert result["indicator_confirmation"]["passed"] >= 3
     assert result["range_candles"] == 1
@@ -90,7 +90,7 @@ def test_new_york_short_orb_is_directionally_mirrored():
     result = evaluate(candles_for("new_york", "SHORT"), 0.8, session="new_york", min_rvol=1.4)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "SHORT"
-    assert result["range_end_local"].endswith("10:00:00-04:00")
+    assert result["range_end_local"].endswith("09:35:00-04:00")
 
 
 def test_no_prebreakout_signal_inside_range():
