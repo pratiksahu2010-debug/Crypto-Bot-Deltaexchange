@@ -1,5 +1,7 @@
 """Static strategy allowlists validated against live Delta USD-quoted perpetuals."""
 import re
+import math
+import time
 import yaml
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -19,6 +21,7 @@ class SymbolManager:
         self.metadata: Dict[str, dict] = {}
         self.skipped_reasons: Dict[str, str] = {}
         self.whitelist_diagnostics: Dict[str, dict] = {}
+        self.ticker_diagnostics: Dict[str, dict] = {}
         self._ranked_normal: List[str] = []
         self._ranked_momentum: List[str] = []
         self._quarantined: Dict[str, dict] = {}
@@ -224,6 +227,9 @@ class SymbolManager:
         self._ranked_normal = rank_universe(normal_rank, "Normal")
         self._ranked_momentum = rank_universe(momentum_rank, "Momentum")
         self._select_active_symbols()
+        # Ticker health is diagnostic only: it never ranks, removes, or replaces
+        # a member of either fixed allowlist.
+        await self._validate_configured_tickers(normal_preferences, momentum_preferences)
         logger.info(
             f"Static universe ready: normal={len(self.normal_symbols)}, "
             f"momentum={len(self.momentum_symbols)}, eligible={len(self.valid_pairs)}"
@@ -261,6 +267,105 @@ class SymbolManager:
                 )
             else:
                 existing["reason"] = reason
+
+    async def _validate_configured_tickers(
+        self, normal_preferences: List[str], momentum_preferences: List[str]
+    ) -> None:
+        """Record per-symbol ticker readiness without changing fixed membership."""
+        configured = list(dict.fromkeys(normal_preferences + momentum_preferences))
+        self.ticker_diagnostics.clear()
+        getter = getattr(self.rest, "get_ticker", None)
+        if not callable(getter):
+            for pair in configured:
+                self.ticker_diagnostics[pair] = {
+                    "status": "TICKER_CHECK_UNAVAILABLE",
+                    "reason": "REST adapter has no ticker method",
+                }
+            return
+
+        try:
+            rows = await getter()
+        except Exception as exc:
+            reason = f"ticker_request_failed:{type(exc).__name__}:{exc}"
+            for pair in configured:
+                self.ticker_diagnostics[pair] = {
+                    "status": "TICKER_REQUEST_FAILED", "reason": reason,
+                }
+            logger.error("DELTA_TICKER_VALIDATION_FAILED symbols=%s error=%s", len(configured), exc)
+            return
+
+        by_pair = {
+            str(row.get("pair") or row.get("market") or "").upper(): row
+            for row in (rows or []) if isinstance(row, dict)
+        }
+        age_reader = getattr(self.rest, "_ticker_age_seconds", None)
+        max_age = float(getattr(self.rest, "MAX_REST_TICKER_AGE_SECONDS", 15.0))
+        now_ms = int(time.time() * 1000)
+        counts = {}
+
+        for pair in configured:
+            if pair not in self.valid_pairs:
+                diagnostic = {
+                    "status": "PRODUCT_UNAVAILABLE",
+                    "reason": "configured symbol has no eligible live Delta perpetual product",
+                }
+            else:
+                row = by_pair.get(pair.upper())
+                if row is None:
+                    diagnostic = {
+                        "status": "TICKER_MISSING",
+                        "reason": "live perpetual product exists but no ticker row was returned",
+                    }
+                else:
+                    raw_price = row.get("last_price", row.get("close"))
+                    try:
+                        price = float(raw_price)
+                    except (TypeError, ValueError, OverflowError):
+                        price = float("nan")
+                    timestamp = row.get("timestamp") or row.get("ts")
+                    age = None
+                    if timestamp is not None and callable(age_reader):
+                        try:
+                            age = age_reader(timestamp, now_ms)
+                        except (TypeError, ValueError, OverflowError):
+                            age = None
+                    if not math.isfinite(price) or price <= 0:
+                        diagnostic = {
+                            "status": "INVALID_TICKER_PRICE",
+                            "reason": "ticker last price is missing, non-numeric, or non-positive",
+                        }
+                    elif age is None:
+                        diagnostic = {
+                            "status": "TICKER_TIMESTAMP_MISSING",
+                            "reason": "ticker has no valid exchange timestamp",
+                        }
+                    elif age < -15.0 or age > max_age:
+                        diagnostic = {
+                            "status": "TICKER_STALE",
+                            "reason": f"ticker age {age:.1f}s exceeds allowed range",
+                            "age_seconds": round(age, 1),
+                        }
+                    else:
+                        diagnostic = {
+                            "status": "FRESH",
+                            "reason": None,
+                            "age_seconds": round(max(0.0, age), 1),
+                            "last_price": price,
+                        }
+
+            self.ticker_diagnostics[pair] = diagnostic
+            counts[diagnostic["status"]] = counts.get(diagnostic["status"], 0) + 1
+            if diagnostic["status"] != "FRESH":
+                logger.warning(
+                    "DELTA_TICKER_SYMBOL pair=%s status=%s reason=%s",
+                    pair, diagnostic["status"], diagnostic.get("reason"),
+                )
+
+        logger.info(
+            "DELTA_TICKER_VALIDATION configured=%s fresh=%s issues=%s",
+            len(configured), counts.get("FRESH", 0),
+            sum(value for key, value in counts.items() if key != "FRESH"),
+        )
 
     def _select_active_symbols(self) -> None:
         """Activate only live exchange products present in the fixed YAML lists.
