@@ -13,6 +13,7 @@ def indicators(**overrides):
         "macd_accel": True, "rsi_accel": True, "roc_direction_ok": True,
         "squeeze_release": True, "bw_expand": True,
         "compression_active": False, "structure_break": False,
+        "adx": 22.0, "plus_di": 28.0, "minus_di": 16.0,
     }
     values.update(overrides)
     return values
@@ -41,13 +42,17 @@ def test_explosion_rejects_missing_or_weak_indicator_evidence():
     assert not evaluate(indicators(rvol=None))
     assert not evaluate(indicators(atr_expansion=0.99))
     assert not evaluate(indicators(rsi=49.0, direction="LONG"))
-    assert not evaluate(indicators(macd_direction_ok=False, macd_accel=False,
-                                   roc_direction_ok=False))
+    assert not evaluate(indicators(macd_direction_ok=False, macd_accel=True,
+                                   roc_direction_ok=True))
+    assert not evaluate(indicators(roc_direction_ok=False))
+    assert not evaluate(indicators(adx=17.99))
+    assert not evaluate(indicators(plus_di=10.0, minus_di=25.0))
+    assert not evaluate(indicators(rvol=1.20))
 
 
 def test_pre_explosion_signals_before_squeeze_release_with_indicator_alignment():
     setup = indicators(squeeze_release=False, bw_expand=False,
-                       compression_active=True, atr_expansion=1.01, rvol=1.15)
+                       compression_active=True, atr_expansion=1.04, rvol=1.25)
     assert is_pre_explosion_signal(setup)
     assert detect_momentum_state(setup) == "PRE_EXPLOSION"
 
@@ -77,3 +82,22 @@ def test_momentum_alert_score_floor_is_eight():
     assert _score_disposition(7.99, 7.0) == "WATCHLIST"
     assert _score_disposition(8.0, 7.0) == "SIGNAL"
     assert _score_disposition(8.5, 8.5) == "SIGNAL"
+
+
+def test_continuation_requires_all_directional_families_and_adx():
+    from strategies.momentum.strategy_manager import diagnose_momentum_state
+
+    base = indicators(squeeze_release=False, bw_expand=False)
+    assert diagnose_momentum_state(base)["CONTINUATION"]
+    assert not diagnose_momentum_state({**base, "macd_direction_ok": False})["CONTINUATION"]
+    assert not diagnose_momentum_state({**base, "ema_aligned": False})["CONTINUATION"]
+    assert not diagnose_momentum_state({**base, "adx": 19.99})["CONTINUATION"]
+    assert not diagnose_momentum_state({**base, "rvol": 1.10})["CONTINUATION"]
+
+
+def test_squeeze_release_needs_macd_roc_and_directional_di():
+    from strategies.momentum.squeeze_detector import evaluate as squeeze_release
+
+    assert squeeze_release(indicators())
+    assert not squeeze_release(indicators(macd_direction_ok=False))
+    assert not squeeze_release(indicators(plus_di=10.0, minus_di=30.0))
