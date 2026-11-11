@@ -168,12 +168,9 @@ class SymbolManager:
         if not details:
             logger.error("No live USD-quoted Delta perpetual products; static universes remain empty")
 
-        ticker_rows = []
-        try:
-            ticker_rows = await self.rest.get_ticker()
-        except Exception as exc:
-            logger.warning(f"Ticker liquidity telemetry unavailable; static allowlists remain unchanged: {exc}")
-        ticker_liquidity = self._ticker_liquidity(ticker_rows)
+        # Symbol membership is controlled only by the checked-in static YAML
+        # allowlists and live perpetual-product validation. Ticker turnover is
+        # deliberately not fetched or used for selection.
 
         self.valid_pairs.clear()
         self.metadata.clear()
@@ -213,9 +210,9 @@ class SymbolManager:
             display = f"{target}/USD" if target else pair.removeprefix("B-").removeprefix("I-").replace("_", "/")
             self.pair_to_symbol[pair] = display
 
-            aliases = [pair, raw_pair, market.get("symbol")]
-            volume = max((ticker_liquidity.get(self._norm(x), 0.0) for x in aliases), default=0.0)
-            self.liquidity[pair] = volume
+            # Retained only for backward-compatible diagnostics; never gates
+            # eligibility or changes static allowlist membership.
+            self.liquidity[pair] = 0.0
 
         logger.info(
             f"Loaded {len(self.valid_pairs)} eligible active Delta perpetual markets "
@@ -240,12 +237,9 @@ class SymbolManager:
                     discovered_by_key[key] = market
         self.whitelist_diagnostics.clear()
 
-        def rank_universe(
-            preferences: Dict[str, int], limit: int, minimum_turnover: float, label: str
-        ) -> List[str]:
-            # Keep the complete configured allowlist. Apply the limit after
-            # stale-feed quarantine so a healthy next member can fill that slot.
-            # Turnover eligibility is applied separately in _select_active_symbols.
+        def rank_universe(preferences: Dict[str, int], label: str) -> List[str]:
+            # Preserve every configured symbol in YAML order. Only live Delta
+            # perpetual validation may mark a configured member unavailable.
             configured = list(preferences.keys())
             available_by_key = {self._norm(pair): pair for pair in self.valid_pairs}
             selected: List[str] = []
@@ -289,15 +283,19 @@ class SymbolManager:
             # No symbol outside the configured allowlist is ever introduced.
             return selected
 
-        self._ranked_normal = rank_universe(
-            normal_rank, settings.normal_symbol_limit,
-            settings.normal_min_24h_turnover_usdt, "Normal",
-        )
-        self._ranked_momentum = rank_universe(
-            momentum_rank, settings.momentum_symbol_limit,
-            settings.momentum_min_24h_turnover_usdt, "Momentum",
-        )
-        self._last_liquidity_refresh = __import__("time").time()
+        if len(normal_preferences) != 40 or len(set(self._norm(x) for x in normal_preferences)) != 40:
+            raise ValueError(
+                f"config/normal_symbols.yaml must contain exactly 40 unique fixed symbols; "
+                f"found {len(normal_preferences)} entries"
+            )
+        if len(momentum_preferences) != 100 or len(set(self._norm(x) for x in momentum_preferences)) != 100:
+            raise ValueError(
+                f"config/momentum_symbols.yaml must contain exactly 100 unique fixed symbols; "
+                f"found {len(momentum_preferences)} entries"
+            )
+
+        self._ranked_normal = rank_universe(normal_rank, "Normal")
+        self._ranked_momentum = rank_universe(momentum_rank, "Momentum")
         self._select_active_symbols()
         logger.info(
             f"Static universe ready: normal={len(self.normal_symbols)}, "
@@ -372,60 +370,19 @@ class SymbolManager:
                 existing["reason"] = reason
 
     def _select_active_symbols(self) -> None:
-        """Select configured perpetuals only when fresh 24h turnover is adequate.
+        """Activate only live exchange products present in the fixed YAML lists.
 
-        YAML order remains authoritative and no dynamic symbols are substituted.
-        Unknown turnover fails closed: a coin without usable liquidity telemetry
-        cannot generate an alert until the next successful ticker refresh.
+        Turnover, ticker volume and environment-provided symbol caps never
+        filter, rank, add or replace configured symbols. Repeatedly stale
+        candle feeds may be temporarily quarantined as a data-health safeguard.
         """
         excluded = set(self._quarantined)
-
-        def select(rank: List[str], label: str, limit: int, minimum_turnover: float) -> List[str]:
-            eligible = []
-            for pair in rank:
-                if pair in excluded:
-                    continue
-                turnover = self._as_positive(self.liquidity.get(pair))
-                key = self._norm(pair)
-                if turnover <= 0:
-                    self.whitelist_diagnostics[key] = {
-                        "configured_symbol": key,
-                        "status": "LIQUIDITY_UNKNOWN",
-                        "reason": "no fresh usable 24h USD turnover; excluded until telemetry recovers",
-                    }
-                    continue
-                if turnover < minimum_turnover:
-                    self.whitelist_diagnostics[key] = {
-                        "configured_symbol": key,
-                        "status": "LOW_TURNOVER",
-                        "turnover_usd": turnover,
-                        "minimum_turnover_usd": minimum_turnover,
-                        "reason": "24h USD turnover is below the strategy liquidity floor",
-                    }
-                    continue
-                self.whitelist_diagnostics.pop(key, None)
-                eligible.append(pair)
-            chosen = eligible[:max(0, int(limit))]
-            logger.info(
-                f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
-                f"active={len(chosen)} quarantined={sum(pair in excluded for pair in rank)} "
-                f"liquidity_excluded={len(rank) - len(eligible)} "
-                f"minimum_24h_turnover_usd={minimum_turnover:.0f}"
-            )
-            return chosen
-
-        # Hard caps prevent stale Render environment overrides from expanding
-        # the fixed 40/100 strategy allowlists.
-        normal_limit = min(40, max(0, int(settings.normal_symbol_limit)))
-        momentum_limit = min(100, max(0, int(settings.momentum_symbol_limit)))
-        self.normal_symbols = select(
-            self._ranked_normal, "Normal", normal_limit,
-            float(settings.normal_min_24h_turnover_usdt),
-        )
-        self.momentum_symbols = select(
-            self._ranked_momentum, "Momentum", momentum_limit,
-            float(settings.momentum_min_24h_turnover_usdt),
-        )
+        self.normal_symbols = [
+            pair for pair in self._ranked_normal if pair not in excluded
+        ]
+        self.momentum_symbols = [
+            pair for pair in self._ranked_momentum if pair not in excluded
+        ]
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
         for pair in selected:
@@ -446,9 +403,9 @@ class SymbolManager:
         for pair in self.valid_pairs - selected - excluded:
             self.skipped_reasons.setdefault(pair, "outside fixed configured strategy allowlists")
         logger.info(
-            f"ACTIVE_FIXED_UNIVERSE normal={len(self.normal_symbols)} "
-            f"momentum={len(self.momentum_symbols)} quarantined={len(self._quarantined)} "
-            "turnover_filter=enabled"
+            f"ACTIVE_FIXED_UNIVERSE normal={len(self.normal_symbols)}/40 "
+            f"momentum={len(self.momentum_symbols)}/100 "
+            f"quarantined={len(self._quarantined)} turnover_filter=disabled"
         )
 
     async def refresh_universes(self) -> None:
@@ -457,14 +414,6 @@ class SymbolManager:
         import time
 
         now = time.time()
-        if now - self._last_liquidity_refresh >= self._liquidity_refresh_seconds:
-            try:
-                await self._refresh_liquidity_ranking()
-            except Exception as exc:
-                logger.warning(f"24h liquidity refresh failed; retaining previous universe: {exc}")
-                # Retry after five minutes rather than on every 5m scan boundary.
-                self._last_liquidity_refresh = now - self._liquidity_refresh_seconds + 300
-
         self._refresh_quarantine_from_rest()
         due = [pair for pair, item in self._quarantined.items() if item["retry_at"] <= now]
         if due:
