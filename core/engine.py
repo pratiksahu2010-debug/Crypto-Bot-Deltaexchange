@@ -86,7 +86,7 @@ def _normal_threshold_gates(
     if direction not in ("LONG", "SHORT") or not isinstance(indicators, dict):
         return {
             "ema_9_21": False, "vwap_direction": False, "rsi_direction": False,
-            "adx_min_25": False, "atr_valid": False,
+            "adx_min_25": False, "atr_valid": False, "confirm_15m": False,
         }
 
     def number(key):
@@ -115,6 +115,70 @@ def _normal_threshold_gates(
         ),
         "adx_min_25": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
         "atr_valid": bool(atr_value is not None and atr_value > 0),
+        "confirm_15m": bool(
+            indicators.get("confirm_15m") is True
+        ),
+    }
+
+
+def _closed_15m_context_from_5m(arr: Dict[str, Any]) -> Dict[str, Any]:
+    """Aggregate only complete 3x5m buckets; never use a forming 15m candle."""
+    try:
+        times = np.asarray(arr["time"], dtype=np.int64)
+        opens = np.asarray(arr["open"], dtype=float)
+        highs = np.asarray(arr["high"], dtype=float)
+        lows = np.asarray(arr["low"], dtype=float)
+        closes = np.asarray(arr["close"], dtype=float)
+        volumes = np.asarray(arr["volume"], dtype=float)
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"available": False, "bias": "NEUTRAL"}
+
+    n = len(times)
+    if n < 75 or any(x.ndim != 1 or len(x) != n for x in
+                      (opens, highs, lows, closes, volumes)):
+        return {"available": False, "bias": "NEUTRAL"}
+    if not all(np.isfinite(x).all() for x in (opens, highs, lows, closes, volumes)):
+        return {"available": False, "bias": "NEUTRAL"}
+
+    buckets: Dict[int, Dict[int, int]] = {}
+    for index, stamp in enumerate(times):
+        start = int(stamp) - int(stamp) % 900_000
+        offset = int(stamp) - start
+        if offset in (0, 300_000, 600_000):
+            buckets.setdefault(start, {})[offset] = index
+
+    htf_open, htf_high, htf_low, htf_close, htf_volume = [], [], [], [], []
+    for start in sorted(buckets):
+        members = buckets[start]
+        if set(members) != {0, 300_000, 600_000}:
+            continue
+        idx = [members[0], members[300_000], members[600_000]]
+        if not (times[idx[1]] - times[idx[0]] == 300_000
+                and times[idx[2]] - times[idx[1]] == 300_000):
+            continue
+        htf_open.append(float(opens[idx[0]]))
+        htf_high.append(float(np.max(highs[idx])))
+        htf_low.append(float(np.min(lows[idx])))
+        htf_close.append(float(closes[idx[-1]]))
+        htf_volume.append(float(np.sum(volumes[idx])))
+
+    if len(htf_close) < 25:
+        return {"available": False, "bias": "NEUTRAL", "bars": len(htf_close)}
+    htf_close_array = np.asarray(htf_close, dtype=float)
+    ema9_15m = ema(htf_close_array, 9)
+    ema21_15m = ema(htf_close_array, 21)
+    if ema9_15m is None or ema21_15m is None:
+        return {"available": False, "bias": "NEUTRAL", "bars": len(htf_close)}
+    if htf_close_array[-1] > ema21_15m and ema9_15m > ema21_15m:
+        bias = "BULLISH"
+    elif htf_close_array[-1] < ema21_15m and ema9_15m < ema21_15m:
+        bias = "BEARISH"
+    else:
+        bias = "NEUTRAL"
+    return {
+        "available": True, "bias": bias, "close": float(htf_close_array[-1]),
+        "ema9": float(ema9_15m), "ema21": float(ema21_15m),
+        "bars": len(htf_close),
     }
 
 
@@ -991,8 +1055,12 @@ class SignalEngine:
             adx_series = _a[0] if _a is not None else None
             adx_rising = bool(adx_series is not None and np.isfinite(adx_series[-1]) and np.isfinite(adx_series[-2]) and adx_series[-1] > adx_series[-2])
 
-        # Signal qualification uses completed primary-timeframe candles only.
-        # Higher-timeframe candles are not fetched or used as a signal dependency.
+        # Build the 15m context from completed 5m candles, requiring all three
+        # constituent bars. This avoids an extra REST request and prevents a
+        # partially formed higher-timeframe candle from biasing Normal signals.
+        htf_context = _closed_15m_context_from_5m(arr) if engine == "normal" else {
+            "available": False, "bias": "NEUTRAL"
+        }
         confirm_candle_time_ms = None
 
         # Market structure: last close must break the prior confirmed swing.
@@ -1146,6 +1214,12 @@ class SignalEngine:
         # are known. Populate it now; the initial indicators snapshot is built
         # earlier and must not read this local before assignment.
         indicators["direction"] = direction
+        indicators["context_15m"] = htf_context.get("bias", "NEUTRAL")
+        indicators["context_15m_bars"] = htf_context.get("bars", 0)
+        indicators["confirm_15m"] = bool(
+            htf_context.get("available")
+            and (htf_context.get("bias") == ("BULLISH" if direction == "LONG" else "BEARISH"))
+        ) if engine == "normal" else True
         # MACD histogram direction is an indicator confirmation for Momentum;
         # Normal never depends on MACD and no candle-volume proxy is used.
         indicators["macd_direction_ok"] = bool(
