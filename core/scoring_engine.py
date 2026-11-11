@@ -196,7 +196,7 @@ class ScoringEngine:
         return ScoreResult(total=total, max_total=8.5, components=components, direction=direction)
 
     def score_momentum_explosion(self, indicators: Dict[str, Any], direction: str) -> ScoreResult:
-        """Score early momentum using volatility, trend and oscillator indicators only."""
+        """Score confirmed early momentum without double-penalising lagging indicators."""
         _validate_direction(direction)
         values = _validated_indicators(indicators)
         is_long = direction == "LONG"
@@ -207,44 +207,62 @@ class ScoringEngine:
                 value, direction, explanation, float(points) > 0))
 
         compression = bool(values.get("compression_active") or values.get("squeeze_release"))
-        add("Volatility Compression/Release", 1.5 if compression else 0.0, 1.5,
-            compression, "Squeeze active/released" if compression else "No squeeze state")
+        add("Volatility Compression/Release", 1.0 if compression else 0.0, 1.0,
+            compression, "Recent compression or release" if compression else "No recent squeeze context")
 
         atr_exp = values.get("atr_expansion")
         atr_floor = 1.03 if values.get("compression_active") is True else 1.05 if values.get("squeeze_release") is True else 1.08
-        atr_points = 1.25 if atr_exp is not None and atr_exp >= atr_floor else 0.0
-        add("ATR Expansion", atr_points, 1.25, atr_exp, f"ATR expansion meets {atr_floor:.2f}x state threshold" if atr_points else f"ATR expansion below {atr_floor:.2f}x")
+        atr_ok = atr_exp is not None and atr_exp >= atr_floor
+        add("ATR Expansion", 1.25 if atr_ok else 0.0, 1.25, atr_exp,
+            f"ATR expansion meets {atr_floor:.2f}x state threshold" if atr_ok else f"ATR expansion below {atr_floor:.2f}x")
 
         rvol = values.get("rvol")
         rvol_floor = 1.20 if values.get("compression_active") is True else 1.25
-        rvol_points = 1.25 if rvol is not None and rvol >= rvol_floor else 0.0
-        add("Relative Volume", rvol_points, 1.25, rvol, f"RVOL meets {rvol_floor:.2f}x state threshold" if rvol_points else f"RVOL below {rvol_floor:.2f}x")
+        rvol_ok = rvol is not None and rvol >= rvol_floor
+        add("Relative Volume", 1.25 if rvol_ok else 0.0, 1.25, rvol,
+            f"RVOL meets {rvol_floor:.2f}x state threshold" if rvol_ok else f"RVOL below {rvol_floor:.2f}x")
 
         ema_ok = bool(values.get("ema_aligned"))
-        add("EMA Alignment", 1.5 if ema_ok else 0.0, 1.5, ema_ok,
-            "EMA trend aligned" if ema_ok else "EMA trend not aligned")
+        structure_ok = bool(values.get("structure_break"))
+        momentum_votes = sum(bool(values.get(key)) for key in (
+            "macd_direction_ok", "roc_direction_ok", "macd_accel", "rsi_accel"
+        ))
+        trend_ok = ema_ok or structure_ok or momentum_votes >= 3
+        add("Trend/Structure Evidence", 1.5 if trend_ok else 0.0, 1.5,
+            {"ema_aligned": ema_ok, "structure_break": structure_ok, "momentum_votes": momentum_votes},
+            "EMA/structure or strong independent momentum evidence" if trend_ok else "Trend/structure evidence absent")
 
-        macd_ok = bool(values.get("macd_direction_ok"))
-        add("MACD Direction/Acceleration", 1.5 if macd_ok else 0.0, 1.5, macd_ok,
-            "MACD supports direction" if macd_ok else "MACD not aligned")
+        macd_ok = bool(values.get("macd_direction_ok") or values.get("macd_accel"))
+        add("MACD Direction/Acceleration", 1.25 if macd_ok else 0.0, 1.25, macd_ok,
+            "MACD direction or acceleration supports the move" if macd_ok else "MACD evidence absent")
 
         rsi_value = values.get("rsi")
-        rsi_floor = 54.0 if values.get("compression_active") is True else 55.0
-        rsi_ceiling = 46.0 if values.get("compression_active") is True else 45.0
-        rsi_ok = rsi_value is not None and (rsi_value >= rsi_floor if is_long else rsi_value <= rsi_ceiling)
-        add("RSI Momentum", 1.0 if rsi_ok else 0.0, 1.0,
-            rsi_value, "RSI supports directional momentum" if rsi_ok else "RSI momentum absent")
+        rsi_floor = 52.0 if values.get("compression_active") is True else 54.0
+        rsi_ceiling = 48.0 if values.get("compression_active") is True else 46.0
+        rsi_direction_ok = rsi_value is not None and (
+            rsi_value >= rsi_floor if is_long else rsi_value <= rsi_ceiling
+        )
+        rsi_ok = rsi_direction_ok or bool(values.get("rsi_accel")) or momentum_votes >= 3
+        add("RSI Momentum", 1.0 if rsi_ok else 0.0, 1.0, rsi_value,
+            "RSI direction/acceleration supports early momentum" if rsi_ok else "RSI momentum absent")
 
         roc_ok = bool(values.get("roc_direction_ok"))
-        add("ROC Direction", 1.5 if roc_ok else 0.0, 1.5, values.get("roc"),
+        add("ROC Direction", 1.25 if roc_ok else 0.0, 1.25, values.get("roc"),
             "ROC supports direction" if roc_ok else "ROC not aligned")
 
         bandwidth = bool(values.get("bw_expand"))
         add("Bandwidth Expansion", 0.5 if bandwidth else 0.0, 0.5, bandwidth,
             "Bollinger bandwidth expanding" if bandwidth else "Bandwidth not expanding")
 
+        adx = values.get("adx")
+        adx_ok = adx is not None and (
+            adx >= 18.0 or (adx >= 14.0 and bool(values.get("adx_rising")))
+        )
+        add("ADX Trend Development", 1.0 if adx_ok else 0.0, 1.0, adx,
+            "ADX strong or rising from early band" if adx_ok else "ADX trend development absent")
+
         total = round(sum(item.points for item in components), 2)
-        return ScoreResult(total=total, components=components, direction=direction)
+        return ScoreResult(total=total, max_total=10.0, components=components, direction=direction)
 
     def score_orb(
         self, indicators: Dict[str, Any], direction: str,
