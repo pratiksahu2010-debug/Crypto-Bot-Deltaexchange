@@ -123,6 +123,7 @@ def _market_data_freshness(request: Request) -> dict:
                 and -60.0 <= age <= stale_after
                 and effective_candle_age is not None
                 and 0.0 <= effective_candle_age <= candle_age_limit
+                and item.get("history_ready") is not False
             )
             feed_details[pair][interval] = {
                 "status": status,
@@ -131,6 +132,10 @@ def _market_data_freshness(request: Request) -> dict:
                 "candle_age_at_observation_seconds": candle_age,
                 "last_completed_open_ms": item.get("last_completed_open_ms") if isinstance(item, dict) else None,
                 "last_completed_close_ms": item.get("last_completed_close_ms") if isinstance(item, dict) else None,
+                "candle_count": item.get("candle_count") if isinstance(item, dict) else None,
+                "completed_history_count": item.get("completed_history_count") if isinstance(item, dict) else None,
+                "required_history_count": item.get("required_history_count") if isinstance(item, dict) else None,
+                "history_ready": item.get("history_ready") if isinstance(item, dict) else None,
                 "error": item.get("error") if isinstance(item, dict) else "no_observation",
             }
             if healthy:
@@ -149,6 +154,7 @@ def _market_data_freshness(request: Request) -> dict:
         "missing_or_stale": expected - fresh,
         "issues": issues[:20],
         "feeds": feed_details,
+        "ticker_diagnostics": getattr(symbols, "ticker_diagnostics", {}) or {},
     }
 
 
