@@ -351,3 +351,28 @@ def test_scoring_modes_reject_unknown_direction():
     ):
         with pytest.raises(ValueError, match="direction must be LONG or SHORT"):
             method({}, "BUY")
+
+
+
+def test_normal_scoring_gives_partial_adx_credit_only_for_rising_directional_band():
+    engine = ScoringEngine()
+    base = {
+        "close": 102.0, "ema9": 101.0, "ema21": 100.0, "vwap": 101.0,
+        "adx": 22.0, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
+        "rsi": 57.0, "atr": 0.5,
+    }
+    early = engine.score_normal(base, "LONG")
+    early_adx = next(c for c in early.components if c.name == "ADX 14")
+    assert early_adx.points == 1.0
+    assert "rising early band" in early_adx.explanation
+
+    falling = engine.score_normal({**base, "adx_rising": False}, "LONG")
+    assert next(c for c in falling.components if c.name == "ADX 14").points == 0.0
+
+    opposed = engine.score_normal(
+        {**base, "plus_di": 15.0, "minus_di": 30.0}, "LONG"
+    )
+    assert next(c for c in opposed.components if c.name == "ADX 14").points == 0.0
+
+    full = engine.score_normal({**base, "adx": 25.0}, "LONG")
+    assert next(c for c in full.components if c.name == "ADX 14").points == 2.0
