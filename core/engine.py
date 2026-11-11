@@ -42,13 +42,13 @@ VALID_MOMENTUM_STATES = frozenset({
 })
 
 
-def _normal_adx_floor(configured: Any = 25.0) -> float:
-    """Keep the required Normal ADX floor at 25 while honoring stricter configuration."""
+def _normal_adx_floor(configured: Any = 20.0) -> float:
+    """Enforce the specified Normal ADX minimum of 20; allow stricter overrides."""
     try:
         value = float(configured)
     except (TypeError, ValueError, OverflowError):
-        value = 25.0
-    return max(25.0, value) if np.isfinite(value) else 25.0
+        value = 20.0
+    return max(20.0, value) if np.isfinite(value) else 20.0
 
 
 def _score_disposition(score: float, signal_threshold: float) -> str:
@@ -86,7 +86,7 @@ def _normal_threshold_gates(
     if direction not in ("LONG", "SHORT") or not isinstance(indicators, dict):
         return {
             "ema_9_21": False, "vwap_direction": False, "rsi_direction": False,
-            "adx_min_25": False, "atr_valid": False, "confirm_15m": False,
+            "adx_min_20": False, "atr_valid": False, "confirm_15m": False,
         }
 
     def number(key):
@@ -113,7 +113,7 @@ def _normal_threshold_gates(
             rsi_value is not None
             and (rsi_value > 50.0 if is_long else rsi_value < 50.0)
         ),
-        "adx_min_25": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
+        "adx_min_20": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
         "atr_valid": bool(atr_value is not None and atr_value > 0),
         "confirm_15m": bool(
             indicators.get("confirm_15m") is True
