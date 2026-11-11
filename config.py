@@ -80,8 +80,8 @@ if HAS_PYDANTIC:
         orb_active_minutes: int = Field(default=180, alias="ORB_ACTIVE_MINUTES")
         orb_asia_enabled: bool = Field(default=True, alias="ORB_ASIA_ENABLED")
         orb_late_us_enabled: bool = Field(default=False, alias="ORB_LATE_US_ENABLED")
-        orb_sydney_enabled: bool = Field(default=True, alias="ORB_SYDNEY_ENABLED")
-        orb_cme_enabled: bool = Field(default=True, alias="ORB_CME_ENABLED")
+        orb_sydney_enabled: bool = Field(default=False, alias="ORB_SYDNEY_ENABLED")
+        orb_cme_enabled: bool = Field(default=False, alias="ORB_CME_ENABLED")
         # Live (intrabar) Momentum Explosion + ORB. mode: off | shadow (log only) | live
         live_ignition_mode: str = Field(default="shadow", alias="LIVE_IGNITION_MODE")
         live_min_move_atr: float = Field(default=1.20, alias="LIVE_MIN_MOVE_ATR")
@@ -189,8 +189,8 @@ else:
             self.orb_max_extension_atr = float(os.getenv("ORB_MAX_EXTENSION_ATR", "0.80"))
             self.orb_active_minutes = int(os.getenv("ORB_ACTIVE_MINUTES", "180"))
             self.orb_asia_enabled = os.getenv("ORB_ASIA_ENABLED", "true").lower() == "true"
-            self.orb_sydney_enabled = os.getenv("ORB_SYDNEY_ENABLED", "true").lower() == "true"
-            self.orb_cme_enabled = os.getenv("ORB_CME_ENABLED", "true").lower() == "true"
+            self.orb_sydney_enabled = os.getenv("ORB_SYDNEY_ENABLED", "false").lower() == "true"
+            self.orb_cme_enabled = os.getenv("ORB_CME_ENABLED", "false").lower() == "true"
             self.live_ignition_mode = os.getenv("LIVE_IGNITION_MODE", "shadow")
             self.live_min_move_atr = float(os.getenv("LIVE_MIN_MOVE_ATR", "1.20"))
             self.live_max_move_atr = float(os.getenv("LIVE_MAX_MOVE_ATR", "2.20"))
