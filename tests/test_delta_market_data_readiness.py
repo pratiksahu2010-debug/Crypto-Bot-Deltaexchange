@@ -229,7 +229,9 @@ async def test_health_is_ready_with_fresh_primary_candles_without_15m_context(mo
                 "status": "fresh",
                 "observed_at_ms": now_ms,
                 "candle_age_seconds": 30.0 if tf == "5m" else 600.0,
-                "last_completed_close_ms": now_ms - (30_000 if tf == "5m" else 600_000),
+                "last_completed_close_ms": now_ms - (30_000 if tf == "5m" else 600_000),                "completed_history_count": 300,
+                "required_history_count": 300,
+                "history_ready": True,
             }
             for tf in ("5m", "15m")
         }
