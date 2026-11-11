@@ -1436,7 +1436,9 @@ class SignalEngine:
                 return
             # Score the five core Normal indicators separately from the RVOL participation gate.
             self.watchlists["normal"].remove_pair(pair, "normal")
-            result = self.normal_scoring.score_normal(indicators, direction)
+            result = self.normal_scoring.score_normal(
+                indicators, direction, adx_min=settings.normal_adx_min,
+            )
         else:
             # Do not impose ADX before regime classification: PRE_EXPLOSION and
             # first ignition often occur before lagging ADX reaches trend thresholds.
