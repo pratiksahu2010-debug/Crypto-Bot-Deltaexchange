@@ -986,17 +986,54 @@ class SignalEngine:
             settings.normal_max_signal_age_seconds if engine == "normal"
             else settings.max_signal_age_seconds
         )
-        # Refresh primary TF candles
+        # WebSocket is the live primary feed. REST is used only to warm the
+        # 220-bar indicator history or repair a stale/incomplete feed.
         primary = settings.candle_primary_tf
-        candle_fetch_started = asyncio.get_running_loop().time()
-        data = await self.rest.get_candles(pair, primary, limit=PRIMARY_CANDLE_HISTORY)
-        candle_fetch_ms = (asyncio.get_running_loop().time() - candle_fetch_started) * 1000.0
-        logger.info(f"SIGNAL_STAGE pair={pair} engine={engine} stage=primary_candle_fetch duration_ms={candle_fetch_ms:.1f}")
-        if len(data) < 50:
+        app_state = getattr(getattr(self, "_app", None), "state", None)
+        websocket = getattr(app_state, "websocket", None)
+        if settings.enable_websocket and websocket is not None and not websocket.connected:
+            logger.info(
+                "MARKET_DATA_SKIP pair=%s engine=%s reason=websocket_not_connected",
+                pair, engine,
+            )
             return
-        self.candles.seed(pair, primary, data)
-        arr = self.candles.get_arrays(pair, primary)
-        if not arr or len(arr["close"]) < 50:
+
+        arr = self.candles.get_completed_arrays(pair, primary)
+        need_backfill = not arr or len(arr.get("close", [])) < PRIMARY_CANDLE_HISTORY
+        if arr and len(arr.get("time", [])):
+            latest_ts = int(arr["time"][-1])
+            interval_ms = int(parse_interval(primary).total_seconds() * 1000)
+            latest_age = candle_age_seconds(
+                int(utc_now().timestamp() * 1000), latest_ts, interval_ms
+            )
+            if latest_age < 0 or latest_age > max_signal_age:
+                need_backfill = True
+
+        if need_backfill:
+            candle_fetch_started = asyncio.get_running_loop().time()
+            try:
+                data = await self.rest.get_candles(
+                    pair, primary, limit=PRIMARY_CANDLE_HISTORY
+                )
+            except Exception as exc:
+                logger.warning(
+                    "MARKET_DATA_BACKFILL_FAILED pair=%s tf=%s error=%s",
+                    pair, primary, exc,
+                )
+                return
+            candle_fetch_ms = (
+                asyncio.get_running_loop().time() - candle_fetch_started
+            ) * 1000.0
+            logger.info(
+                "MARKET_DATA_BACKFILL pair=%s engine=%s rows=%s duration_ms=%.1f",
+                pair, engine, len(data), candle_fetch_ms,
+            )
+            if len(data) < 50:
+                return
+            self.candles.seed(pair, primary, data)
+            arr = self.candles.get_completed_arrays(pair, primary)
+
+        if not arr or len(arr.get("close", [])) < 50:
             return
 
         close = arr["close"]
@@ -1103,11 +1140,10 @@ class SignalEngine:
         orb_result = {}
         if engine == "momentum" and settings.orb_enabled:
             try:
-                orb_data = await self.rest.get_candles(pair, "5m", limit=PRIMARY_CANDLE_HISTORY)
-                if len(orb_data) >= 25:
-                    orb_arr = {name: np.asarray([row[name] for row in orb_data], dtype=float)
-                               for name in ("open", "high", "low", "close", "volume")}
-                    orb_arr["time"] = np.asarray([row["time"] for row in orb_data], dtype=np.int64)
+                # ORB consumes the exact same validated completed-candle
+                # snapshot as the indicator pipeline; no second REST request.
+                orb_arr = arr
+                if len(orb_arr.get("close", [])) >= 25:
                     orb_atr = atr(orb_arr["high"], orb_arr["low"], orb_arr["close"], 14)
                     orb_avg_volume = float(np.mean(orb_arr["volume"][-21:-1]))
                     orb_rvol = float(orb_arr["volume"][-1] / orb_avg_volume) if orb_avg_volume > 0 else None
