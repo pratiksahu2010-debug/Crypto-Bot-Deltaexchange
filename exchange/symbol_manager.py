@@ -372,37 +372,60 @@ class SymbolManager:
                 existing["reason"] = reason
 
     def _select_active_symbols(self) -> None:
-        """Select only configured, live Delta crypto perpetuals; turnover never gates membership.
+        """Select configured perpetuals only when fresh 24h turnover is adequate.
 
-        YAML order is authoritative. Missing/inactive contracts are excluded by
-        live product validation; repeated stale-candle feeds are temporarily
-        quarantined and retried. No dynamic or turnover-based substitutions.
+        YAML order remains authoritative and no dynamic symbols are substituted.
+        Unknown turnover fails closed: a coin without usable liquidity telemetry
+        cannot generate an alert until the next successful ticker refresh.
         """
         excluded = set(self._quarantined)
 
-        def select(rank: List[str], label: str, limit: int) -> List[str]:
+        def select(rank: List[str], label: str, limit: int, minimum_turnover: float) -> List[str]:
+            eligible = []
             for pair in rank:
-                if pair not in excluded and self._as_positive(self.liquidity.get(pair)) <= 0:
-                    key = self._norm(pair)
-                    self.whitelist_diagnostics.setdefault(key, {
+                if pair in excluded:
+                    continue
+                turnover = self._as_positive(self.liquidity.get(pair))
+                key = self._norm(pair)
+                if turnover <= 0:
+                    self.whitelist_diagnostics[key] = {
                         "configured_symbol": key,
                         "status": "LIQUIDITY_UNKNOWN",
-                        "reason": "turnover telemetry unavailable; static member retained",
-                    })
-            chosen = [pair for pair in rank if pair not in excluded][:max(0, int(limit))]
+                        "reason": "no fresh usable 24h USD turnover; excluded until telemetry recovers",
+                    }
+                    continue
+                if turnover < minimum_turnover:
+                    self.whitelist_diagnostics[key] = {
+                        "configured_symbol": key,
+                        "status": "LOW_TURNOVER",
+                        "turnover_usd": turnover,
+                        "minimum_turnover_usd": minimum_turnover,
+                        "reason": "24h USD turnover is below the strategy liquidity floor",
+                    }
+                    continue
+                self.whitelist_diagnostics.pop(key, None)
+                eligible.append(pair)
+            chosen = eligible[:max(0, int(limit))]
             logger.info(
                 f"{label.upper()}_FIXED_UNIVERSE configured={len(rank)} "
                 f"active={len(chosen)} quarantined={sum(pair in excluded for pair in rank)} "
-                "turnover_filter=disabled"
+                f"liquidity_excluded={len(rank) - len(eligible)} "
+                f"minimum_24h_turnover_usd={minimum_turnover:.0f}"
             )
             return chosen
 
-        # Hard caps prevent stale Render environment overrides (e.g. 120/120)
-        # from expanding the requested fixed 40/100 strategy universes.
+        # Hard caps prevent stale Render environment overrides from expanding
+        # the fixed 40/100 strategy allowlists.
         normal_limit = min(40, max(0, int(settings.normal_symbol_limit)))
         momentum_limit = min(100, max(0, int(settings.momentum_symbol_limit)))
-        self.normal_symbols = select(self._ranked_normal, "Normal", normal_limit)
-        self.momentum_symbols = select(self._ranked_momentum, "Momentum", momentum_limit)
+        self.normal_symbols = select(
+            self._ranked_normal, "Normal", normal_limit,
+            float(settings.normal_min_24h_turnover_usdt),
+        )
+        self.momentum_symbols = select(
+            self._ranked_momentum, "Momentum", momentum_limit,
+            float(settings.momentum_min_24h_turnover_usdt),
+        )
         selected = set(self.normal_symbols) | set(self.momentum_symbols)
 
         for pair in selected:
