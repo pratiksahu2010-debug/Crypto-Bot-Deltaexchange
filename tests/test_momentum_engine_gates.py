@@ -42,3 +42,10 @@ def test_momentum_and_orb_keep_shared_ema_extension_protection(extension):
 def test_momentum_requires_valid_atr_before_alert():
     assert _momentum_entry_gates("EXPLOSION", 0.0, 0.5)["anti_chase"] is False
     assert _momentum_entry_gates("EXPLOSION", float("nan"), 0.5)["anti_chase"] is False
+
+
+
+def test_mex_allows_moderate_extension_for_pullback_entry_but_not_chasing():
+    assert _momentum_entry_gates("EXPLOSION", 0.5, 1.25)["anti_chase"] is True
+    assert _momentum_entry_gates("SQUEEZE_RELEASE", 0.5, 1.50)["anti_chase"] is True
+    assert _momentum_entry_gates("PRE_EXPLOSION_SIGNAL", 0.5, 1.5001)["anti_chase"] is False
