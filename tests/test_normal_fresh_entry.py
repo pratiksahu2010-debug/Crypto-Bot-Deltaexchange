@@ -254,3 +254,38 @@ def test_15m_context_uses_only_complete_three_bar_groups():
     broken = {key: np.delete(value, 0) for key, value in arr.items()}
     broken_context = _closed_15m_context_from_5m(broken)
     assert broken_context["bars"] < context["bars"]
+
+
+
+def test_normal_accepts_rising_adx_early_band_only_with_directional_di():
+    from core.engine import _normal_threshold_gates
+
+    base = {
+        "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
+        "rsi": 56.0, "adx": 22.0, "adx_rising": True, "atr": 0.5,
+        "plus_di": 28.0, "minus_di": 19.0,
+    }
+    assert _normal_threshold_gates(base, "LONG", 25.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(
+        {**base, "adx_rising": False}, "LONG", 25.0
+    )["adx_min_25"] is False
+    assert _normal_threshold_gates(
+        {**base, "plus_di": 18.0, "minus_di": 29.0}, "LONG", 25.0
+    )["adx_min_25"] is False
+    assert _normal_threshold_gates(
+        {**base, "adx": 19.99}, "LONG", 25.0
+    )["adx_min_25"] is False
+
+
+def test_normal_rising_adx_early_band_is_mirrored_for_short():
+    from core.engine import _normal_threshold_gates
+
+    base = {
+        "ema9": 99.0, "ema21": 100.0, "close": 98.5, "vwap": 99.5,
+        "rsi": 44.0, "adx": 23.0, "adx_rising": True, "atr": 0.5,
+        "plus_di": 17.0, "minus_di": 29.0,
+    }
+    assert _normal_threshold_gates(base, "SHORT", 25.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(
+        {**base, "plus_di": 30.0, "minus_di": 18.0}, "SHORT", 25.0
+    )["adx_min_25"] is False
