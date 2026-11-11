@@ -1,7 +1,7 @@
 """Session-based crypto Opening Range Breakout detector for Delta perps.
 
 All qualification uses completed 5-minute candles. Each session has its own
-30-minute opening range, session-anchored VWAP, session-local RVOL baseline,
+5-minute opening range, session-anchored VWAP, session-local RVOL baseline,
 and timezone-aware trade window. London/New York use IANA zones so DST is
 handled automatically. ORB alerts are emitted only after a candle CLOSES
 outside that session's opening range; no pre-breakout alerts are generated.
@@ -19,26 +19,26 @@ from indicators.vwap import vwap
 from indicators.roc import roc
 
 
-# Trade window starts after the 30-minute range is complete.
-# Asia: 00:00-00:30 UTC range, trade until 04:30 UTC.
-# London/NY: 30-minute range followed by four hours of trading.
-# Late US: optional 30-minute range followed by three hours of trading.
+# Trade window starts after the first completed 5-minute opening candle.
+# Asia: 00:00-00:05 UTC range, then trade for four hours.
+# London/NY: 5-minute range followed by four hours of trading.
+# Late US: optional 5-minute range followed by three hours of trading.
 SESSIONS = {
     "asia": {
         "timezone": "UTC", "open": time(0, 0),
-        "range_minutes": 30, "trade_minutes": 240,
+        "range_minutes": 5, "trade_minutes": 240,
     },
     "london": {
         "timezone": "Europe/London", "open": time(8, 0),
-        "range_minutes": 30, "trade_minutes": 240,
+        "range_minutes": 5, "trade_minutes": 240,
     },
     "new_york": {
         "timezone": "America/New_York", "open": time(9, 30),
-        "range_minutes": 30, "trade_minutes": 240,
+        "range_minutes": 5, "trade_minutes": 240,
     },
     "late_us": {
         "timezone": "America/New_York", "open": time(16, 0),
-        "range_minutes": 30, "trade_minutes": 180,
+        "range_minutes": 5, "trade_minutes": 180,
     },
 }
 
@@ -124,7 +124,7 @@ def _validate_candles(candles, require_volume=False):
 
 
 def _range_indexes(stamps, start, range_minutes):
-    """Find exactly six consecutive candle-open timestamps for the 30m range."""
+    """Find the first completed 5-minute candle that defines the session range."""
     start_ms = int(start.astimezone(timezone.utc).timestamp() * 1000)
     expected = [start_ms + offset * 60_000 for offset in range(0, range_minutes, 5)]
     positions = {int(ts): i for i, ts in enumerate(stamps)}
@@ -138,7 +138,7 @@ def _range_indexes(stamps, start, range_minutes):
 
 
 def opening_range(candles, session="london", now_ms=None, active_minutes=None):
-    """Return the six-bar completed 30-minute opening range for one session."""
+    """Return the six-bar completed 5-minute opening range for one session."""
     try:
         name = str(session).lower()
         spec = SESSIONS[name]
@@ -220,7 +220,10 @@ def evaluate(
         # Each session gets its own VWAP anchor and volume baseline. RVOL is
         # current completed-bar volume divided by prior bars since this anchor.
         prior_session_volumes = volume_values[session_idx:-1]
-        if len(prior_session_volumes) < 3:
+        # The opening-range candle is the first session baseline. Allow the
+        # first completed candle after it to qualify; do not silently delay
+        # a 5-minute ORB by waiting for several additional bars.
+        if len(prior_session_volumes) < 1:
             return _result(
                 "SESSION_VOLUME_BASELINE_BUILDING", meta,
                 range_high=range_high, range_low=range_low,
