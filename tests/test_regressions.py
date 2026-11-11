@@ -265,7 +265,7 @@ def test_stale_market_quarantine_filters_and_restores_configured_symbols(monkeyp
                 return []
             return [
                 {"time": i, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}
-                for i in range(100)
+                for i in range(300)
             ]
 
     async def run():
