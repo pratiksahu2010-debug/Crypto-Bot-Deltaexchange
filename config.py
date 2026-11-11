@@ -44,7 +44,7 @@ if HAS_PYDANTIC:
         enable_normal_engine: bool = Field(default=True, alias="ENABLE_NORMAL_ENGINE")
         enable_momentum_engine: bool = Field(default=True, alias="ENABLE_MOMENTUM_ENGINE")
         memory_warning_mb: int = Field(default=400, alias="MEMORY_WARNING_MB")
-        normal_adx_min: float = Field(default=25.0, alias="NORMAL_ADX_MIN")
+        normal_adx_min: float = Field(default=20.0, alias="NORMAL_ADX_MIN")
         normal_rvol_min: float = Field(default=1.4, alias="NORMAL_RVOL_MIN")
         momentum_adx_explosion: float = Field(default=18.0, alias="MOMENTUM_ADX_MIN")
         # --- Normal engine: fresh-entry rules (see strategies/normal/entry_trigger.py) ---
@@ -150,7 +150,7 @@ else:
             self.enable_normal_engine = os.getenv("ENABLE_NORMAL_ENGINE", "true").lower() == "true"
             self.enable_momentum_engine = os.getenv("ENABLE_MOMENTUM_ENGINE", "true").lower() == "true"
             self.memory_warning_mb = int(os.getenv("MEMORY_WARNING_MB", "400"))
-            self.normal_adx_min = float(os.getenv("NORMAL_ADX_MIN", "25.0"))
+            self.normal_adx_min = float(os.getenv("NORMAL_ADX_MIN", "20.0"))
             self.normal_rvol_min = float(os.getenv("NORMAL_RVOL_MIN", "1.4"))
             self.momentum_adx_explosion = float(os.getenv("MOMENTUM_ADX_MIN", "18.0"))
             self.normal_max_signal_age_seconds = int(os.getenv("NORMAL_MAX_SIGNAL_AGE_SECONDS", "60"))
