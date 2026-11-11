@@ -1068,7 +1068,13 @@ class SignalEngine:
             self.candles.seed(pair, primary, data)
             arr = self.candles.get_completed_arrays(pair, primary)
 
-        if not arr or len(arr.get("close", [])) < 50:
+        completed_count = len(arr.get("close", [])) if arr else 0
+        if completed_count < PRIMARY_CANDLE_HISTORY:
+            logger.warning(
+                "MARKET_DATA_SKIP pair=%s engine=%s reason=insufficient_completed_history "
+                "rows=%s required=%s",
+                pair, engine, completed_count, PRIMARY_CANDLE_HISTORY,
+            )
             return
         timestamps = np.asarray(arr["time"], dtype=np.int64)
         if timestamps.size > 1 and np.any(np.diff(timestamps) != interval_ms):
