@@ -28,6 +28,14 @@ SESSIONS = {
         "timezone": "UTC", "open": time(0, 0),
         "range_minutes": 5, "trade_minutes": 240,
     },
+    "sydney": {
+        "timezone": "Australia/Sydney", "open": time(10, 0),
+        "range_minutes": 5, "trade_minutes": 240,
+    },
+    "cme": {
+        "timezone": "America/Chicago", "open": time(17, 0),
+        "range_minutes": 5, "trade_minutes": 240,
+    },
     "london": {
         "timezone": "Europe/London", "open": time(8, 0),
         "range_minutes": 5, "trade_minutes": 240,
