@@ -124,6 +124,7 @@ def _market_data_freshness(request: Request) -> dict:
                 and effective_candle_age is not None
                 and 0.0 <= effective_candle_age <= candle_age_limit
                 and item.get("history_ready") is not False
+                and int(item.get("missing_candle_count") or 0) == 0
             )
             feed_details[pair][interval] = {
                 "status": status,
@@ -136,6 +137,11 @@ def _market_data_freshness(request: Request) -> dict:
                 "completed_history_count": item.get("completed_history_count") if isinstance(item, dict) else None,
                 "required_history_count": item.get("required_history_count") if isinstance(item, dict) else None,
                 "history_ready": item.get("history_ready") if isinstance(item, dict) else None,
+                "duplicate_row_count": item.get("duplicate_row_count") if isinstance(item, dict) else None,
+                "out_of_order_row_count": item.get("out_of_order_row_count") if isinstance(item, dict) else None,
+                "missing_candle_count": item.get("missing_candle_count") if isinstance(item, dict) else None,
+                "future_row_count": item.get("future_row_count") if isinstance(item, dict) else None,
+                "invalid_row_count": item.get("invalid_row_count") if isinstance(item, dict) else None,
                 "error": item.get("error") if isinstance(item, dict) else "no_observation",
             }
             if healthy:
@@ -166,6 +172,7 @@ def _websocket_diagnostics(request: Request) -> dict:
         "status": websocket.status,
         "reconnects": websocket.reconnect_count,
         "symbol_feed_age_seconds": websocket.symbol_feed_age_seconds,
+        "candle_event_quality": websocket.candle_event_quality,
     }
 
 
