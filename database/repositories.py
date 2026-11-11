@@ -88,7 +88,7 @@ async def load_active_signals(max_age_hours: int = 4) -> list:
 
 
 async def update_signal_record(signal: dict, status: str) -> bool:
-    """Persist TP/SL/expiry lifecycle changes for matching active signal records."""
+    """Persist lifecycle changes for the exact signal candle, not sibling re-entries."""
     import json
     from sqlalchemy import select
     from database import db as database_db
@@ -97,6 +97,7 @@ async def update_signal_record(signal: dict, status: str) -> bool:
     factory = database_db.SessionLocal
     if factory is None:
         return False
+    candle_ms = signal.get("candle_time_ms") or signal.get("candle_ts")
     async with factory() as session:
         try:
             result = await session.execute(
@@ -108,11 +109,23 @@ async def update_signal_record(signal: dict, status: str) -> bool:
                 )
             )
             records = result.scalars().all()
+            matched = []
             for record in records:
+                try:
+                    payload = json.loads(record.payload or "{}")
+                except (TypeError, ValueError):
+                    payload = {}
+                stored_candle = payload.get("candle_time_ms") or payload.get("candle_ts")
+                if candle_ms is not None:
+                    if stored_candle is not None and int(stored_candle) == int(candle_ms):
+                        matched.append(record)
+                elif record.id == max((r.id for r in records), default=None):
+                    matched.append(record)
+            for record in matched:
                 record.status = status
                 record.payload = json.dumps(signal, default=str)
             await session.commit()
-            return bool(records)
+            return bool(matched)
         except Exception as exc:
             await session.rollback()
             logger.error(f"Signal lifecycle persistence failed: {exc}")
