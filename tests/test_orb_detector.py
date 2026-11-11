@@ -167,8 +167,10 @@ def test_orb_rejects_directionally_misaligned_di():
     assert result["state"] == "DI_NOT_ALIGNED"
 
 
-def test_orb_uses_20_bar_volume_baseline_not_one_opening_candle():
+def test_orb_volume_baseline_excludes_pre_session_bars():
     data = candles_for("london", "LONG")
+    # Overnight/pre-session volume must not contaminate the London baseline.
+    data["volume"][:48] = 1000.0
     result = evaluate(
         data, 0.8, session="london", min_rvol=1.4,
         adx_value=25, plus_di=30, minus_di=15,
