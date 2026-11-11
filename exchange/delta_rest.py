@@ -397,6 +397,8 @@ class DeltaExchangeRest:
                 "candle_age_seconds": round(
                     max(0.0, (now_ms - candle_open_ms - interval_ms) / 1000.0), 1
                 ),
+                "candle_count": len(candles),
+                "history_ready": None,
                 "error": None,
             }
             self._stale_market_timeframes.get(pair, {}).pop(interval, None)
@@ -409,6 +411,19 @@ class DeltaExchangeRest:
                 "observed_at_ms": now_ms,
                 "error": str(error or "no_fresh_completed_candles"),
             }
+
+    def record_completed_history_count(
+        self, pair: str, interval: str, count: int, required: int
+    ) -> None:
+        """Attach the engine's post-merge completed-bar warm-up result to diagnostics."""
+        status = self._candle_feed_status.setdefault(pair, {}).setdefault(interval, {})
+        count = max(0, int(count))
+        required = max(1, int(required))
+        status["completed_history_count"] = count
+        status["required_history_count"] = required
+        status["history_ready"] = count >= required
+        if count < required:
+            status["error"] = f"insufficient_completed_history:{count}/{required}"
 
     def _prune_candle_cache(self):
         if len(self._candle_cache) > 1000:
