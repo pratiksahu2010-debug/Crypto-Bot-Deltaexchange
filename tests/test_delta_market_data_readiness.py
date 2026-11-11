@@ -83,6 +83,10 @@ async def test_delta_rest_candles_are_completed_aligned_and_report_freshness(mon
             }
             for i in range(60)
         ]
+    # Malformed OHLC rows must be visible in quality diagnostics.
+    rows_by_interval["5m"].append({
+        **rows_by_interval["5m"][-1], "high": 1,
+    })
 
     async def fake_get(url, params=None):
         return {"result": rows_by_interval[params["resolution"]]}
@@ -97,6 +101,8 @@ async def test_delta_rest_candles_are_completed_aligned_and_report_freshness(mon
 
     status = client.get_candle_feed_status()["B-BTC_USDT"]
     assert status["5m"]["status"] == "fresh"
+    assert status["5m"]["invalid_row_count"] == 1
+    assert status["5m"]["candle_count"] == 60
     assert status["15m"]["status"] == "fresh"
     assert status["5m"]["last_completed_close_ms"] == (
         status["5m"]["last_completed_open_ms"] + 300_000
