@@ -34,7 +34,7 @@ Normal does not require 15-minute confirmation (15m context is diagnostic only),
 - Separate detector states for explosion, squeeze release, pre-explosion, continuation and volume spike.
 - Each detector owns its indicator qualification (EMA, RSI, MACD/ROC, squeeze, volatility and volume as applicable).
 - The shared engine does not add a second universal MACD, ADX/DI or RVOL veto after a detector qualifies.
-- Shared safety checks require valid ATR and reject entries more than 2.0 ATR from EMA9.
+- Shared safety checks require valid ATR and reject non-ORB Momentum entries more than 1.0 ATR from EMA9. ORB uses its own detector extension limit.
 - Scores below 5.5 are rejected; 5.5 to the signal threshold are watchlist-only; alerts require at least max(8.0, SIGNAL_THRESHOLD).
 
 ### Opening Range Breakout (ORB)
