@@ -3,7 +3,7 @@ from core.scoring_engine import ScoringEngine
 
 def orb_quality(**overrides):
     values = {
-        "rvol": 1.9, "orb_session_rvol": 1.9, "close": 102.0, "vwap": 101.0,
+        "rvol": 1.9, "orb_session_rvol": 1.9, "orb_rolling_rvol": 1.9, "close": 102.0, "vwap": 101.0,
         "ema9": 101.5, "ema21": 100.0, "rsi": 60.0, "atr": 0.5,
         "orb_breakout_extension_atr": 0.25,
         "macd_direction_ok": True, "roc_direction_ok": True,
