@@ -116,8 +116,8 @@ def test_signal_only_and_order_execution_are_hard_disabled():
     assert settings.orders_enabled is False
 
 
-def test_normal_adx_floor_cannot_be_lowered_below_20(monkeypatch):
+def test_normal_adx_floor_cannot_be_lowered_below_25(monkeypatch):
     from core.engine import _normal_adx_floor
 
     monkeypatch.setattr(settings, "normal_adx_min", 18.0)
-    assert _normal_adx_floor(settings.normal_adx_min) == 20.0
+    assert _normal_adx_floor(settings.normal_adx_min) == 25.0
