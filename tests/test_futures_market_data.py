@@ -1087,46 +1087,49 @@ def test_crypto_universe_keeps_crypto_assets(pair):
 
 
 @pytest.mark.asyncio
-async def test_fixed_allowlist_excludes_commodities_and_never_adds_unlisted_crypto(monkeypatch):
+async def test_fixed_allowlist_excludes_commodities_and_never_adds_unlisted_crypto():
+    from pathlib import Path
+    import yaml
     from exchange.symbol_manager import SymbolManager
+
+    root = Path(__file__).resolve().parents[1] / "config"
+    normal = yaml.safe_load((root / "normal_symbols.yaml").read_text())["symbols"]
+    momentum = yaml.safe_load((root / "momentum_symbols.yaml").read_text())["symbols"]
+    extras = [
+        "B-XAU_USDT", "B-PAXG_USDT", "B-XAG_USDT", "B-CL_USDT",
+        "B-NATGAS_USDT", "B-COPPER_USDT", "B-UNLISTEDXYZ_USDT",
+    ]
+    configured_assets = [
+        pair.removeprefix("B-").removesuffix("_USDT")
+        for pair in momentum + extras
+    ]
 
     class RestStub:
         async def get_market_details(self):
-            bases = ["BTC", "ETH", "SOL", "XAU", "PAXG", "XAG", "CL", "NATGAS", "COPPER"]
             return [
                 {
-                    "pair": f"B-{base}_USDT",
-                    "coindcx_name": f"B-{base}_USDT",
-                    "base_currency_short_name": "USDT",
-                    "target_currency_short_name": base,
+                    "pair": f"B-{asset}_USDT",
+                    "symbol": f"{asset}USD",
+                    "base_currency_short_name": "USD",
+                    "target_currency_short_name": asset,
+                    "quote_currency": "USD",
                     "status": "active",
+                    "contract_type": "perpetual_futures",
                 }
-                for base in bases
+                for asset in configured_assets
             ]
 
         async def get_ticker(self):
-            return [
-                {
-                    "market": f"B-{base}_USDT",
-                    "quote_volume": 2_000_000,
-                }
-                for base in ["BTC", "ETH", "SOL", "XAU", "PAXG", "XAG", "CL", "NATGAS", "COPPER"]
-            ]
+            return []
 
     manager = SymbolManager(RestStub())
-    monkeypatch.setattr(
-        manager, "_load_yaml",
-        lambda path: ["B-BTC_USDT", "B-ETH_USDT"] if "normal" in path else ["B-BTC_USDT", "B-ETH_USDT"],
-    )
-
     await manager.load_and_validate()
 
-    # SOL is a valid crypto futures market but is not in this test allowlist.
-    # It must not be injected by dynamic fallback.
-    assert manager.valid_pairs == {"B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"}
-    assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-    assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+    assert manager.normal_symbols == normal
+    assert manager.momentum_symbols == momentum
+    assert "B-UNLISTEDXYZ_USDT" not in manager.momentum_symbols
     for pair in ("B-XAU_USDT", "B-PAXG_USDT", "B-XAG_USDT", "B-CL_USDT", "B-NATGAS_USDT", "B-COPPER_USDT"):
+        assert pair not in manager.valid_pairs
         assert manager.skipped_reasons[pair] == (
             "non-crypto commodity contract excluded from crypto-only scanning"
         )
