@@ -173,6 +173,8 @@ async def test_production_health_accepts_configured_telegram_delivery(monkeypatc
                 "candle_age_seconds": 10.0,
                 "last_completed_open_ms": now_ms - 310_000,
                 "last_completed_close_ms": now_ms - 10_000,
+                "completed_history_count": 300, "required_history_count": 300,
+                "history_ready": True,
             },
             "15m": {
                 "status": "fresh", "observed_at_ms": now_ms,
