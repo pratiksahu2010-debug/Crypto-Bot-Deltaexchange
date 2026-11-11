@@ -1528,26 +1528,30 @@ class SignalEngine:
                 else detect_momentum_state(indicators)
             )
             if momentum_state == "PRE_EXPLOSION":
-                if is_pre_explosion_signal(indicators):
-                    # Alert on a tightly qualified compression-phase ignition,
-                    # before the full BB/Keltner release and large range candle.
-                    momentum_state = "PRE_EXPLOSION_SIGNAL"
-                    indicators["pre_explosion_signal"] = True
-                else:
-                    self._log_candle_evaluation(
-                        pair, engine, direction, candle_ts, candle_close_ms,
-                        confirm_candle_time_ms, indicators, "WATCHLIST",
-                        failed=["awaiting_directional_ignition"], strategy=momentum_state,
-                    )
-                    self._last_processed.setdefault(engine, {})[pair] = candle_ts
-                    self.watchlists[engine].add({
-                        "pair": pair, "display": self.symbols.display_name(pair),
-                        "direction": direction, "engine": engine,
-                        "strategy": momentum_state, "score": 0.0,
-                        "grade": "WATCHLIST", "price": float(close[-1]),
-                        "timestamp": utc_iso(utc_now()),
-                    })
-                    return
+                # Stage 1 is a candidate/watchlist state only. Even a strong
+                # compression-phase ignition must wait for Stage 2 release or
+                # independent volatility expansion before becoming an alert.
+                early_candidate = is_pre_explosion_signal(indicators)
+                indicators["pre_explosion_candidate"] = bool(early_candidate)
+                waiting_reason = (
+                    "stage_1_candidate_waiting_for_stage_2_confirmation"
+                    if early_candidate else "awaiting_directional_ignition"
+                )
+                self._log_candle_evaluation(
+                    pair, engine, direction, candle_ts, candle_close_ms,
+                    confirm_candle_time_ms, indicators, "WATCHLIST",
+                    failed=[waiting_reason], strategy=momentum_state,
+                )
+                self._last_processed.setdefault(engine, {})[pair] = candle_ts
+                self.watchlists[engine].add({
+                    "pair": pair, "display": self.symbols.display_name(pair),
+                    "direction": direction, "engine": engine,
+                    "strategy": momentum_state, "score": 0.0,
+                    "grade": "WATCHLIST", "price": float(close[-1]),
+                    "timestamp": utc_iso(utc_now()),
+                    "stage": "EARLY_CANDIDATE" if early_candidate else "AWAITING_IGNITION",
+                })
+                return
             if momentum_state in ("MOMENTUM_SETUP", "POSSIBLE_EXHAUSTION"):
                 state_checks = diagnose_momentum_state(indicators)
                 checks_text = ",".join(
