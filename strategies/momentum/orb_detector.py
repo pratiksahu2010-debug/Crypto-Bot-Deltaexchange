@@ -138,7 +138,7 @@ def _range_indexes(stamps, start, range_minutes):
 
 
 def opening_range(candles, session="london", now_ms=None, active_minutes=None):
-    """Return the six-bar completed 5-minute opening range for one session."""
+    """Return the one-bar completed 5-minute opening range for one session."""
     try:
         name = str(session).lower()
         spec = SESSIONS[name]
@@ -219,7 +219,7 @@ def evaluate(
         session_idx = int(np.searchsorted(stamps, session_start_ms, side="left"))
         # Each session gets its own VWAP anchor and volume baseline. RVOL is
         # current completed-bar volume divided by prior bars since this anchor.
-        prior_session_volumes = volume_values[session_idx:-1]
+        prior_session_volumes = volume_values[max(0, session_idx - 20):-1]
         # The opening-range candle is the first session baseline. Allow the
         # first completed candle after it to qualify; do not silently delay
         # a 5-minute ORB by waiting for several additional bars.
@@ -264,46 +264,71 @@ def evaluate(
             )
 
         is_long = direction == "LONG"
+        adx_v = _finite(adx_value)
+        plus_di_v = _finite(plus_di)
+        minus_di_v = _finite(minus_di)
+        adx_floor = _finite(adx_min)
+        adx_floor = 20.0 if adx_floor is None else adx_floor
+        di_aligned = bool(
+            plus_di_v is not None and minus_di_v is not None
+            and (plus_di_v > minus_di_v if is_long else minus_di_v > plus_di_v)
+        )
+        # ADX and directional movement are mandatory qualification gates.
+        if adx_v is None or adx_v < adx_floor:
+            return _result(
+                "WEAK_TREND", meta, direction=direction,
+                range_high=range_high, range_low=range_low,
+                adx=adx_v, adx_min=adx_floor, plus_di=plus_di_v,
+                minus_di=minus_di_v, di_aligned=di_aligned,
+                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
+            )
+        if not di_aligned:
+            return _result(
+                "DI_NOT_ALIGNED", meta, direction=direction,
+                range_high=range_high, range_low=range_low, adx=adx_v,
+                adx_min=adx_floor, plus_di=plus_di_v, minus_di=minus_di_v,
+                di_aligned=False, session_rvol=round(session_rvol, 4),
+                rvol_baseline=round(baseline, 8),
+            )
+
+        macd_min_abs = max(atr_v * 0.01, 1e-12)
         flags = {
-            "ema_9_21": bool(
-                e9 is not None and e21 is not None
-                and (e9 > e21 if is_long else e9 < e21)
-            ),
-            "session_vwap": bool(
-                session_vwap is not None
-                and (current_close > session_vwap if is_long else current_close < session_vwap)
-            ),
-            "rsi": bool(
-                rsi_value is not None
-                and (rsi_value >= 52 if is_long else rsi_value <= 48)
-            ),
-            "macd_histogram": bool(
-                hist is not None and (hist > 0 if is_long else hist < 0)
-            ),
-            "macd_acceleration": bool(
-                hist is not None and hist_prev is not None
-                and (hist > hist_prev if is_long else hist < hist_prev)
-            ),
-            "roc": bool(
-                roc_value is not None and (roc_value > 0 if is_long else roc_value < 0)
-            ),
+            "ema_9_21": bool(e9 is not None and e21 is not None and (e9 > e21 if is_long else e9 < e21)),
+            "session_vwap": bool(session_vwap is not None and (current_close > session_vwap if is_long else current_close < session_vwap)),
+            "rsi": bool(rsi_value is not None and (rsi_value >= 55 if is_long else rsi_value <= 45)),
+            "macd_histogram": bool(hist is not None and abs(float(hist)) >= macd_min_abs and (hist > 0 if is_long else hist < 0)),
+            "macd_acceleration": bool(hist is not None and hist_prev is not None and (hist > hist_prev if is_long else hist < hist_prev)),
+            "roc": bool(roc_value is not None and (roc_value > 0 if is_long else roc_value < 0)),
         }
         passed = sum(flags.values())
-        # A real close beyond the range is mandatory. No pre-breakout alerts.
-        # Three of six independent indicator checks must agree, with EMA or
-        # session VWAP mandatory, plus a session-specific RVOL expansion.
-        if passed < 3 or not (flags["ema_9_21"] or flags["session_vwap"]):
+        required = ("ema_9_21", "session_vwap", "rsi", "macd_histogram", "roc")
+        missing = [key for key in required if not flags[key]]
+        if missing:
             return _result(
                 "INDICATOR_UNCONFIRMED", meta, direction=direction,
-                range_high=range_high, range_low=range_low,
-                indicator_confirmation={"checks": flags, "passed": passed},
-                session_rvol=round(session_rvol, 4), rvol_baseline=baseline,
+                range_high=range_high, range_low=range_low, adx=adx_v,
+                plus_di=plus_di_v, minus_di=minus_di_v, di_aligned=True,
+                indicator_confirmation={"checks": flags, "passed": passed, "required": list(required), "failed": missing, "macd_min_abs": macd_min_abs},
+                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
             )
         if session_rvol < float(min_rvol):
             return _result(
                 "LOW_SESSION_RVOL", meta, direction=direction,
-                range_high=range_high, range_low=range_low,
-                session_rvol=round(session_rvol, 4), rvol_baseline=baseline,
+                range_high=range_high, range_low=range_low, adx=adx_v,
+                plus_di=plus_di_v, minus_di=minus_di_v, di_aligned=True,
+                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
+                indicator_confirmation={"checks": flags, "passed": passed},
+            )
+        # Reject wick-only pokes: close at least 0.05 ATR beyond range and body in direction.
+        breakout_buffer = atr_v * 0.05
+        body_aligned = arrays["close"][-1] > arrays["open"][-1] if is_long else arrays["close"][-1] < arrays["open"][-1]
+        if ((is_long and current_close < range_high + breakout_buffer) or (not is_long and current_close > range_low - breakout_buffer) or not body_aligned):
+            return _result(
+                "WEAK_BREAKOUT_CLOSE", meta, direction=direction,
+                range_high=range_high, range_low=range_low, breakout_buffer=breakout_buffer,
+                body_aligned=body_aligned, adx=adx_v, plus_di=plus_di_v,
+                minus_di=minus_di_v, di_aligned=True,
+                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
                 indicator_confirmation={"checks": flags, "passed": passed},
             )
 
@@ -342,10 +367,9 @@ def evaluate(
                 "ema9": e9, "ema21": e21, "vwap": session_vwap,
                 "rsi": rsi_value, "macd_histogram": hist, "roc": roc_value,
             },
-            trend_confirmed=bool(
-                _finite(adx_value) is not None and _finite(adx_value) >= adx_min
-            ),
-            di_aligned=None, adx_rising=bool(adx_rising),
+            adx=adx_v, adx_min=adx_floor,
+            plus_di=plus_di_v, minus_di=minus_di_v,
+            trend_confirmed=True, di_aligned=True, adx_rising=bool(adx_rising),
             failed_breakout=False,
         )
     except (KeyError, TypeError, ValueError, OverflowError, IndexError, FloatingPointError):
