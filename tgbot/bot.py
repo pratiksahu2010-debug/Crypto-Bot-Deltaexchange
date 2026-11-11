@@ -1,7 +1,5 @@
 """Telegram bot integration — signal delivery + commands."""
 from typing import Optional, List, Any, Dict
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 import re
 import time
 from telegram import Update, Bot
@@ -139,18 +137,6 @@ class TelegramBot:
         def safe(value: Any) -> str:
             return escape(str(value if value is not None else "n/a"), quote=False)
 
-        def stamp(value: Any) -> str:
-            if not value:
-                return "n/a"
-            try:
-                raw = str(value).strip()
-                dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                return dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d-%b-%Y %I:%M:%S %p IST")
-            except (TypeError, ValueError, OverflowError):
-                return "n/a"
-
         risk = signal.get("risk") or {}
         ind = signal.get("indicators") or {}
         direction = str(signal.get("direction", "")).upper()
@@ -179,21 +165,12 @@ class TelegramBot:
         if engine == "SIGNALS":
             step = signal.get("step") or {}
             quality = signal.get("quality") or {}
-            candle_utc = signal.get("candle_time_ms")
-            try:
-                candle_dt = datetime.fromtimestamp(int(candle_utc) / 1000, tz=timezone.utc)
-                candle_ist = candle_dt.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%d-%b-%Y %I:%M:%S %p IST")
-                candle_utc_text = candle_dt.isoformat()
-            except (TypeError, ValueError, OverflowError, OSError):
-                candle_ist = candle_utc_text = "n/a"
             rows = [
                 f"{dot} <b>{safe(pair)} — {side} SIGNAL</b>",
                 f"<b>SIGNAL TYPE:</b> SEQUENTIAL",
                 f"<b>ENGINE:</b> SEQUENTIAL",
                 f"<b>STRATEGY:</b> {safe(strategy)}",
                 f"<b>TIMEFRAME:</b> 5M (PRIMARY)",
-                f"<b>CANDLE TIME (IST):</b> {safe(candle_ist)}",
-                f"<b>CANDLE TIME (UTC):</b> {safe(candle_utc_text)}",
                 "",
                 "<b>ENTRY CONFIRMATIONS</b>",
                 f"<b>EMA 9:</b> {safe(_num(ind.get('ema9')))} | <b>EMA 21:</b> {safe(_num(ind.get('ema21')))}",
@@ -207,7 +184,6 @@ class TelegramBot:
                 f"<b>TP1:</b> {safe(_num(risk.get('tp1')))} | <b>TP2:</b> {safe(_num(risk.get('tp2')))}",
                 f"<b>STEP EVENT:</b> {safe(step.get('event', 'n/a'))}",
                 f"<b>RVOL:</b> {safe(_num(quality.get('rvol'), 2))}",
-                f"<b>SIGNAL AGE:</b> {safe(signal.get('signal_age_seconds', 'n/a'))} seconds",
                 "",
                 "<i>Signal only — no automated trading.</i>",
             ]
@@ -231,7 +207,6 @@ class TelegramBot:
                 "<b>TRADE LEVELS</b>",
                 f"<b>ENTRY:</b> {safe(_num(risk.get('entry')))}",
                 f"<b>LIVE PRICE CHECK:</b> {safe(_num(signal.get('live_price')))}",
-                f"<b>ENTRY CHECKED (IST):</b> {safe(stamp(signal.get('entry_checked_at')))}",
                 f"<b>ENTRY ZONE:</b> {safe(_num(ez[0]))} – {safe(_num(ez[1]))}",
                 f"<b>STOP LOSS:</b> {safe(_num(risk.get('stop_loss')))}",
                 f"<b>TP1:</b> {safe(_num(risk.get('tp1')))}",
@@ -244,18 +219,6 @@ class TelegramBot:
         else:
             rows += [f"<b>PRICE:</b> {safe(_num(price))}", ""]
 
-        candle_open = signal.get("candle_time_ms")
-        candle_close = signal.get("candle_close_time_ms")
-
-        def ms_stamp(value: Any, ist: bool = False) -> str:
-            try:
-                dt = datetime.fromtimestamp(int(value) / 1000, tz=timezone.utc)
-                if ist:
-                    dt = dt.astimezone(ZoneInfo("Asia/Kolkata"))
-                return dt.strftime("%d-%b-%Y %I:%M:%S %p") + (" IST" if ist else " UTC")
-            except (TypeError, ValueError, OverflowError, OSError):
-                return "n/a"
-
         rows += [
             "<b>MARKET INDICATORS</b>",
             f"<b>TIMEFRAME:</b> 5M (PRIMARY)",
@@ -263,15 +226,6 @@ class TelegramBot:
             f"<b>RSI:</b> {safe(_num(ind.get('rsi'), 2))} | <b>ADX:</b> {safe(_num(ind.get('adx'), 2))}",
             f"<b>ATR%:</b> {safe(_num(ind.get('atr_pct'), 3))} | <b>RVOL:</b> {safe(_num(ind.get('rvol'), 2))}",
             f"<b>MACD HIST:</b> {safe(_num(ind.get('macd_hist')))}",
-            "",
-            "<b>CANDLE TIMING</b>",
-            f"<b>CANDLE OPEN:</b> {safe(ms_stamp(candle_open))}",
-            f"<b>CANDLE OPEN (IST):</b> {safe(ms_stamp(candle_open, True))}",
-            f"<b>CANDLE CLOSE:</b> {safe(ms_stamp(candle_close))}",
-            f"<b>CANDLE CLOSE (IST):</b> {safe(ms_stamp(candle_close, True))}",
-            f"<b>ENTRY CHECKED (IST):</b> {safe(stamp(signal.get('entry_checked_at')))}",
-            f"<b>SIGNAL GENERATED (IST):</b> {safe(stamp(signal.get('timestamp')))}",
-            f"<b>SIGNAL AGE:</b> {safe(signal.get('signal_age_seconds', 'n/a'))} seconds",
             "",
             "<i>Signal only — no automated trading.</i>",
         ]
