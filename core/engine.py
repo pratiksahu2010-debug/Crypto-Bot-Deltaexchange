@@ -1523,7 +1523,7 @@ class SignalEngine:
             # common risk, freshness, deduplication and delivery pipeline.
             # Momentum must be a directional expansion, not merely a high score.
             momentum_state = (
-                orb_result.get("state") if orb_result.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
+                orb_result.get("state") if orb_result.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING")
                 and orb_result.get("direction") == direction
                 else detect_momentum_state(indicators)
             )
