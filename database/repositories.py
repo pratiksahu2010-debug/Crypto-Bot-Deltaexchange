@@ -165,8 +165,10 @@ async def claim_signal_once(signal: dict, candle_time_ms: int, ttl_hours: int = 
         )
         ttl_hours = max(48, int(ttl_hours))
     else:
+        # Global conflict key: Normal and Momentum may independently
+        # qualify the same market move, but only one alert per pair,
+        # direction and completed candle may be claimed across all engines.
         key = (
-            f"{signal.get('engine', 'unknown')}:{signal.get('strategy', 'unknown')}:"
             f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
         )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
