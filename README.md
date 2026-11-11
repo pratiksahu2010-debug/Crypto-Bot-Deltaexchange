@@ -59,9 +59,13 @@ Normal does not require 15-minute confirmation (15m context is diagnostic only),
 
 ## Market-data integrity
 
-- REST is authoritative for completed candles; WebSocket supplies forming-candle telemetry and fresh LTP cache only.
-- Candle timestamps are normalized to UTC milliseconds. Invalid, duplicate, future-dated, unfinished and stale rows are diagnosed or excluded.
-- REST fallback remains available during WebSocket reconnects.
+- The configured Delta WebSocket candle channel is the primary live feed for the active union of Normal and Momentum symbols. Duplicate symbols are removed before subscription.
+- Signal indicators consume a shared candle cache. ORB reuses the same completed 5m snapshot; it does not make a second per-symbol REST candle request.
+- Delta WebSocket subscriptions are considered ready only after the exchange acknowledges every requested channel and symbol. If WebSocket is enabled but disconnected or unavailable, signal scans fail closed instead of silently generating alerts from REST-only data.
+- REST is used to warm the required historical indicator window and repair stale/incomplete candle history. It is not fetched on every normal scan.
+- WebSocket candle updates may represent the forming candle. The scanner explicitly excludes any candle whose timeframe has not fully elapsed.
+- Candle timestamps are normalized to UTC milliseconds. Invalid, duplicate, future-dated, unfinished and out-of-order rows are rejected. A REST backfill merges with, rather than discards, newer WebSocket updates.
+- After a disconnect, the scanner waits for a confirmed subscription and uses REST backfill when the completed-candle cache is insufficient or stale before resuming signals.
 - The scanner, readiness checks and quarantine recovery require only the primary timeframe. CANDLE_CONFIRM_TF is retained only for backward-compatible environment files and has no signal role.
 
 ## Health and keepalive
