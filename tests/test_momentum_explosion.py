@@ -43,13 +43,14 @@ def test_explosion_supports_both_directions(direction, rsi, macd, roc):
 def test_explosion_rejects_missing_or_weak_indicator_evidence():
     assert not evaluate(indicators(rvol=None))
     assert not evaluate(indicators(atr_expansion=0.99))
-    assert not evaluate(indicators(rsi=49.0, direction="LONG"))
-    assert not evaluate(indicators(macd_direction_ok=False, macd_accel=True,
-                                   roc_direction_ok=True))
-    assert not evaluate(indicators(roc_direction_ok=False))
+    assert not evaluate(indicators(rsi=49.0, direction="LONG", rsi_accel=False))
+    assert not evaluate(indicators(macd_direction_ok=False, macd_accel=False,
+                                   roc_direction_ok=True, rsi_accel=False))
+    assert not evaluate(indicators(roc_direction_ok=False, macd_accel=False,
+                                   rsi_accel=False))
     assert not evaluate(indicators(adx=17.99))
     assert not evaluate(indicators(plus_di=10.0, minus_di=25.0))
-    assert not evaluate(indicators(rvol=1.20))
+    assert not evaluate(indicators(rvol=1.19))
 
 
 def test_pre_explosion_signals_before_squeeze_release_with_indicator_alignment():
@@ -112,3 +113,24 @@ def test_volume_spike_requires_actual_atr_expansion():
     assert volume_spike(setup)
     assert not volume_spike({**setup, "atr_expansion": 1.02})
     assert not volume_spike({**setup, "rvol": 1.40})
+
+
+
+def test_explosion_can_confirm_without_a_textbook_squeeze():
+    setup = indicators(
+        squeeze_release=False, compression_active=False,
+        bw_expand=False, atr_expansion=1.16,
+    )
+    assert evaluate(setup)
+
+
+def test_explosion_uses_rising_adx_early_band_and_directional_votes():
+    setup = indicators(
+        adx=15.5, adx_rising=True, atr_expansion=1.04, rvol=1.22,
+        macd_direction_ok=True, roc_direction_ok=True,
+    )
+    assert evaluate(setup)
+
+
+def test_explosion_rejects_opposing_di_without_rising_adx():
+    assert not evaluate(indicators(plus_di=10.0, minus_di=28.0, adx_rising=False))
