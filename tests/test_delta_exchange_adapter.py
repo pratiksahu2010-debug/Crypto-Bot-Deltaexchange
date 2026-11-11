@@ -229,7 +229,7 @@ async def test_symbol_manager_accepts_delta_usd_perpetual_under_internal_strateg
             }]
 
         async def get_ticker(self):
-            # Missing turnover must not rotate a fixed, preselected allowlist.
+            # A market with no usable turnover is deliberately ineligible.
             return [{
                 "market": "B-BTC_USDT", "pair": "B-BTC_USDT",
                 "symbol": "BTCUSD", "timestamp": int(time.time()),
@@ -241,8 +241,9 @@ async def test_symbol_manager_accepts_delta_usd_perpetual_under_internal_strateg
     await manager.load_and_validate()
 
     assert manager.valid_pairs == {"B-BTC_USDT"}
-    assert manager.normal_symbols == ["B-BTC_USDT"]
-    assert manager.momentum_symbols == ["B-BTC_USDT"]
+    assert manager.normal_symbols == []
+    assert manager.momentum_symbols == []
+    assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
     assert manager.display_name("B-BTC_USDT") == "BTC/USD"
 
 
@@ -281,7 +282,11 @@ async def test_symbol_manager_enforces_configured_universe_limits(monkeypatch):
             ]
 
         async def get_ticker(self):
-            return []
+            return [
+                {"market": "B-BTC_USDT", "turnover_usd": 2_000_000},
+                {"market": "B-ETH_USDT", "turnover_usd": 1_500_000},
+                {"market": "B-SOL_USDT", "turnover_usd": 1_200_000},
+            ]
 
     manager = SymbolManager(RestStub())
     configured = ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
