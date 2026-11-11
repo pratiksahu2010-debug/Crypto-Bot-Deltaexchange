@@ -418,9 +418,9 @@ class SignalEngine:
     def _handle_live_candidate(self, pair: str, res: Dict[str, Any], mode: str) -> None:
         engine, direction, candle_ms = "momentum", res["direction"], res["candle_time_ms"]
         live = self._ensure_live_state()
-        if self.cooldowns[engine].is_cooling(pair, engine, direction):
+        if self.cooldowns[engine].is_cooling(pair, engine, direction, strategy):
             return
-        active = self.signals[engine].get(pair, engine, direction)
+        active = self.signals[engine].get(pair, engine, direction, signal.get("signal_id"))
         if active and active.get("status") == "active" and not active.get("tp1_hit"):
             return
         if not live.first_attempt(pair, direction, candle_ms):
@@ -580,7 +580,7 @@ class SignalEngine:
             await release()
             return reject("not_queued")
 
-        self.cooldowns[engine].set(pair, engine, direction)
+        self.cooldowns[engine].set(pair, engine, direction, strategy=strategy)
         self._live_emitted.append(time.time())
         self.live_stats["emitted"] += 1
         self._live_post_entry[(pair, direction)] = [risk.entry, risk.entry]
@@ -590,7 +590,7 @@ class SignalEngine:
             f"LIVE_SIGNAL_QUEUED {score.grade} {direction} {pair} strategy={res['strategy']} "
             f"score={score.total} age_seconds={signal['signal_age_seconds']}"
         )
-        persisted = self.signals[engine].get(pair, engine, direction)
+        persisted = self.signals[engine].get(pair, engine, direction, signal.get("signal_id"))
         if persisted:
             try:
                 from database.repositories import save_signal
@@ -1500,7 +1500,7 @@ class SignalEngine:
             )
             return
 
-        if self.cooldowns[engine].is_cooling(pair, engine, direction):
+        if self.cooldowns[engine].is_cooling(pair, engine, direction, strategy):
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
@@ -1618,7 +1618,7 @@ class SignalEngine:
                     float(settings.normal_retest_ttl_seconds) if engine == "normal"
                     else min(900, max(180, interval_seconds * 3))
                 )
-                pending_key = f"{pair}:{engine}:{direction}"
+                pending_key = f"{pair}:{engine}:{direction}:{strategy}"
                 pending_record = {
                     "signal": signal, "created_at": utc_iso(utc_now()),
                     "expires_at": utc_now().timestamp() + retest_ttl,
@@ -1714,12 +1714,12 @@ class SignalEngine:
                 # retries transient Telegram errors while the original entry window remains valid.
                 queued = await self._queue_telegram_signal(signal)
                 if queued:
-                    self.cooldowns[engine].set(pair, engine, direction)
+                    self.cooldowns[engine].set(pair, engine, direction, strategy=strategy)
                     logger.info(
                         "SIGNAL_QUEUED %s %s %s score=%s age_seconds=%s",
                         result.grade, direction, pair, result.total, signal.get("signal_age_seconds"),
                     )
-                    persisted_signal = self.signals[engine].get(pair, engine, direction)
+                    persisted_signal = self.signals[engine].get(pair, engine, direction, signal.get("signal_id"))
                     if persisted_signal:
                         try:
                             from database.repositories import save_signal
@@ -1835,6 +1835,7 @@ class SignalEngine:
                 if old_key != key
                 and (old_signal := (old.get("signal") or {})).get("pair") == pair
                 and old_signal.get("engine") == engine
+                and old_signal.get("strategy") == new_signal.get("strategy")
                 and old_signal.get("direction") == opposite
             ]
             try:
@@ -1909,7 +1910,7 @@ class SignalEngine:
                 continue
             if (
                 not self.signals[engine].can_reenter(signal)
-                or self.cooldowns[engine].is_cooling(pair, engine, direction)
+                or self.cooldowns[engine].is_cooling(pair, engine, direction, signal.get("strategy"))
             ):
                 await remove("active_signal_or_cooldown")
                 continue
@@ -1957,7 +1958,7 @@ class SignalEngine:
                 continue
             queued = await self._queue_telegram_signal(signal)
             if queued:
-                self.cooldowns[engine].set(pair, engine, direction)
+                self.cooldowns[engine].set(pair, engine, direction, strategy=strategy)
                 from database.repositories import save_signal
                 active = self.signals[engine].get(pair, engine, direction, signal.get("signal_id")) or signal
                 if not await save_signal(active):
