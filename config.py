@@ -79,6 +79,7 @@ if HAS_PYDANTIC:
         orb_max_extension_atr: float = Field(default=0.80, alias="ORB_MAX_EXTENSION_ATR")
         orb_active_minutes: int = Field(default=180, alias="ORB_ACTIVE_MINUTES")
         orb_asia_enabled: bool = Field(default=True, alias="ORB_ASIA_ENABLED")
+        orb_late_us_enabled: bool = Field(default=False, alias="ORB_LATE_US_ENABLED")
         orb_sydney_enabled: bool = Field(default=True, alias="ORB_SYDNEY_ENABLED")
         orb_cme_enabled: bool = Field(default=True, alias="ORB_CME_ENABLED")
         # Live (intrabar) Momentum Explosion + ORB. mode: off | shadow (log only) | live
