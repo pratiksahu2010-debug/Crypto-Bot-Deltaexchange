@@ -10,7 +10,7 @@ def test_entry_state_immediate_retest_and_expired():
 
 
 def test_risk_levels_report_gross_reward_risk_without_fee_adjustments():
-    risk = calculate_risk(100.0, 2.0, "LONG")
+    risk = calculate_risk(100.0, 2.0, "LONG", swing_low=98.0)
     assert risk is not None
     assert risk.rr1 == 2.0
     assert risk.rr2 == 3.0
@@ -24,7 +24,7 @@ def test_risk_levels_report_gross_reward_risk_without_fee_adjustments():
 def test_configured_reward_multipliers_are_applied_as_r_multiples():
     risk = calculate_risk(
         100.0, 2.0, "LONG",
-        atr_mult_tp1=1.0, atr_mult_tp2=2.0, atr_mult_tp3=3.0,
+        atr_mult_tp1=1.0, atr_mult_tp2=2.0, atr_mult_tp3=3.0, swing_low=98.0,
     )
     assert risk is not None
     assert risk.rr1 == 1.0
@@ -39,17 +39,17 @@ def test_invalid_reward_multipliers_fail_closed():
 
 
 def test_extreme_volatility_rejects_non_positive_stop_or_target_prices():
-    assert calculate_risk(100.0, 30.0, "SHORT") is None
-    assert calculate_risk(100.0, 50.0, "LONG") is None
+    assert calculate_risk(100.0, 30.0, "SHORT", swing_high=110.0) is None
+    assert calculate_risk(100.0, 50.0, "LONG", swing_low=50.0) is None
 
 
 def test_extreme_volatility_rejects_non_positive_entry_zone():
-    assert calculate_risk(10.0, 100.0, "LONG") is None
-    assert calculate_risk(10.0, 100.0, "SHORT") is None
+    assert calculate_risk(10.0, 100.0, "LONG", swing_low=5.0) is None
+    assert calculate_risk(10.0, 100.0, "SHORT", swing_high=20.0) is None
 
 
 def test_short_risk_levels_use_the_same_gross_reward_multipliers():
-    risk = calculate_risk(100.0, 2.0, "SHORT")
+    risk = calculate_risk(100.0, 2.0, "SHORT", swing_high=102.0)
     assert risk is not None
     assert risk.rr1 == 2.0
     assert risk.rr2 == 3.0
