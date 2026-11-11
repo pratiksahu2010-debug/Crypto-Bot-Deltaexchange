@@ -63,8 +63,6 @@ if HAS_PYDANTIC:
         normal_rvol_gate_enabled: bool = Field(default=False, alias="NORMAL_RVOL_GATE_ENABLED")
         normal_symbol_limit: int = Field(default=40, alias="NORMAL_SYMBOL_LIMIT")
         momentum_symbol_limit: int = Field(default=100, alias="MOMENTUM_SYMBOL_LIMIT")
-        normal_min_24h_turnover_usdt: float = Field(default=1000000.0, alias="NORMAL_MIN_24H_TURNOVER_USDT")
-        momentum_min_24h_turnover_usdt: float = Field(default=500000.0, alias="MOMENTUM_MIN_24H_TURNOVER_USDT")
         candle_close_grace_seconds: int = Field(default=3, alias="CANDLE_CLOSE_GRACE_SECONDS")
         max_signal_age_seconds: int = Field(default=120, alias="MAX_SIGNAL_AGE_SECONDS")
         # Deprecated compatibility settings; never used to reject signals.
@@ -173,8 +171,6 @@ else:
             self.normal_rvol_gate_enabled = os.getenv("NORMAL_RVOL_GATE_ENABLED", "false").lower() == "true"
             self.normal_symbol_limit = int(os.getenv("NORMAL_SYMBOL_LIMIT", "40"))
             self.momentum_symbol_limit = int(os.getenv("MOMENTUM_SYMBOL_LIMIT", "100"))
-            self.normal_min_24h_turnover_usdt = float(os.getenv("NORMAL_MIN_24H_TURNOVER_USDT", "1000000"))
-            self.momentum_min_24h_turnover_usdt = float(os.getenv("MOMENTUM_MIN_24H_TURNOVER_USDT", "500000"))
             self.candle_close_grace_seconds = int(os.getenv("CANDLE_CLOSE_GRACE_SECONDS", "3"))
             self.max_signal_age_seconds = int(os.getenv("MAX_SIGNAL_AGE_SECONDS", "120"))
             self.futures_round_trip_cost_bps = float(os.getenv("FUTURES_ROUND_TRIP_COST_BPS", "15.0"))
