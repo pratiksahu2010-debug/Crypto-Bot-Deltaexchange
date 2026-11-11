@@ -225,6 +225,8 @@ class TelegramBot:
             f"<b>EMA 9/21:</b> {safe(_num(ind.get('ema9')))} / {safe(_num(ind.get('ema21')))}",
             f"<b>RSI:</b> {safe(_num(ind.get('rsi'), 2))} | <b>ADX:</b> {safe(_num(ind.get('adx'), 2))}",
             f"<b>ATR%:</b> {safe(_num(ind.get('atr_pct'), 3))} | <b>RVOL:</b> {safe(_num(ind.get('rvol'), 2))}",
+            *([f"<b>ORB SESSION RVOL:</b> {safe(_num(ind.get('orb_session_rvol'), 2))} | <b>ADX:</b> {safe(_num(ind.get('orb_adx'), 2))}/{safe(_num(ind.get('orb_adx_min'), 1))}",
+               f"<b>+DI / -DI:</b> {safe(_num(ind.get('orb_plus_di'), 2))} / {safe(_num(ind.get('orb_minus_di'), 2))} | <b>ORB LEVEL:</b> {safe(_num(ind.get('orb_breakout_level')))}"] if strategy_key.startswith("ORB_") else []),
             f"<b>MACD HIST:</b> {safe(_num(ind.get('macd_hist')))}",
             "",
             "<i>Signal only — no automated trading.</i>",
