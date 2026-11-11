@@ -70,12 +70,13 @@ def _momentum_entry_gates(
         extension = float(ema_extension_atr)
     except (TypeError, ValueError, OverflowError):
         atr_number = extension = float("nan")
+    atr_valid = bool(np.isfinite(atr_number) and atr_number > 0)
     return {
         "momentum_state": state in VALID_MOMENTUM_STATES,
+        "atr_valid": atr_valid,
         "anti_chase": bool(
             bypass_anti_chase or (
-                np.isfinite(atr_number) and atr_number > 0
-                and np.isfinite(extension) and 0.0 <= extension <= 1.0
+                atr_valid and np.isfinite(extension) and 0.0 <= extension <= 1.0
             )
         ),
     }
