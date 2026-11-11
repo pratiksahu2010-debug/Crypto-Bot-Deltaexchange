@@ -101,6 +101,10 @@ def test_websocket_ignores_older_event_for_same_forming_candle(monkeypatch):
     }
     stream._handle_candlestick({**base, "ts": (now_ms + 1_000) * 1000, "c": 102})
     stream._handle_candlestick({**base, "ts": (now_ms + 500) * 1000, "c": 101})
+    stream._handle_candlestick({**base, "ts": (now_ms + 1_000) * 1000, "c": 102})
 
     assert len(builder.rows) == 1
     assert builder.rows[0]["close"] == 102
+    assert stream.candle_event_quality["B-BTC_USDT"] == {
+        "out_of_order": 1, "duplicate": 1,
+    }
