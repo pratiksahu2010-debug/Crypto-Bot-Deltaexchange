@@ -121,7 +121,7 @@ def test_live_explosion_is_claimed_queued_and_cooled_down(harness):
     assert signal["candle_time_ms"] == T0 and signal["score"] > 0.0
     risk = signal["risk"]
     assert risk["stop_loss"] < risk["entry"] < risk["tp1"] < risk["tp2"] < risk["tp3"]
-    assert eng.cooldowns["momentum"].is_cooling(PAIR, "momentum", "LONG")
+    assert eng.cooldowns["momentum"].is_cooling(PAIR, "momentum", "LONG", "EXPLOSION")
     assert eng.signals["momentum"].get(PAIR, "momentum", "LONG")["status"] == "active"
     assert eng.live_stats["emitted"] == 1
 
