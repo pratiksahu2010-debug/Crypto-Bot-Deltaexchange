@@ -190,7 +190,7 @@ class ScoringEngine:
             compression, "Squeeze active/released" if compression else "No squeeze state")
 
         atr_exp = values.get("atr_expansion")
-        atr_floor = 1.03 if values.get("compression_active") is True else 1.08
+        atr_floor = 1.03 if values.get("compression_active") is True else 1.05 if values.get("squeeze_release") is True else 1.08
         atr_points = 1.25 if atr_exp is not None and atr_exp >= atr_floor else 0.0
         add("ATR Expansion", atr_points, 1.25, atr_exp, f"ATR expansion meets {atr_floor:.2f}x state threshold" if atr_points else f"ATR expansion below {atr_floor:.2f}x")
 
