@@ -9,11 +9,12 @@ class CooldownManager:
         self.default_seconds = default_seconds
         self._cooldowns: Dict[str, datetime] = {}
 
-    def _key(self, pair: str, engine: str, direction: str) -> str:
-        return f"{pair}:{engine}:{direction}"
+    def _key(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> str:
+        base = f"{pair}:{engine}:{direction}"
+        return f"{base}:{strategy}" if strategy else base
 
-    def is_cooling(self, pair: str, engine: str, direction: str) -> bool:
-        key = self._key(pair, engine, direction)
+    def is_cooling(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> bool:
+        key = self._key(pair, engine, direction, strategy)
         expiry = self._cooldowns.get(key)
         if expiry is None:
             return False
@@ -23,14 +24,14 @@ class CooldownManager:
             return False
         return True
 
-    def set(self, pair: str, engine: str, direction: str, seconds: Optional[int] = None) -> None:
-        key = self._key(pair, engine, direction)
+    def set(self, pair: str, engine: str, direction: str, seconds: Optional[int] = None, strategy: Optional[str] = None) -> None:
+        key = self._key(pair, engine, direction, strategy)
         secs = seconds if seconds is not None else self.default_seconds
         self._cooldowns[key] = datetime.now(timezone.utc) + timedelta(seconds=secs)
         logger.debug(f"Cooldown set {key} for {secs}s")
 
-    def clear(self, pair: str, engine: str, direction: str) -> None:
-        key = self._key(pair, engine, direction)
+    def clear(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> None:
+        key = self._key(pair, engine, direction, strategy)
         self._cooldowns.pop(key, None)
 
     def clear_pair(self, pair: str) -> None:
@@ -38,8 +39,8 @@ class CooldownManager:
         for k in keys:
             del self._cooldowns[k]
 
-    def remaining(self, pair: str, engine: str, direction: str) -> float:
-        key = self._key(pair, engine, direction)
+    def remaining(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> float:
+        key = self._key(pair, engine, direction, strategy)
         expiry = self._cooldowns.get(key)
         if not expiry:
             return 0.0
