@@ -318,8 +318,8 @@ async def health(request: Request):
                     "scan_freshness": scan_freshness,
                     "market_data_freshness": market_data,
                     "websocket": websocket,
-                    "expected_symbols_normal": app_state.get("expected_symbols_normal", 40),
-                    "expected_symbols_momentum": app_state.get("expected_symbols_momentum", 100),
+                    "expected_symbols_normal": state.get("expected_symbols_normal", 40),
+                    "expected_symbols_momentum": state.get("expected_symbols_momentum", 100),
                     "reasons": reasons,
                 },
             )
