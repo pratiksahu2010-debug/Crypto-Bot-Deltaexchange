@@ -108,7 +108,7 @@ class CandleBuilder:
         rest_latest_ts = max(merged)
         for existing in buf.candles:
             ts = int(existing["time"])
-            if ts not in merged or ts > rest_latest_ts:
+            if ts > rest_latest_ts:
                 merged[ts] = dict(existing)
         replacement = CandleBuffer(buf.max_len)
         for ts in sorted(merged):
