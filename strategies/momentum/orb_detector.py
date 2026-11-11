@@ -286,80 +286,109 @@ def evaluate(
             plus_di_v is not None and minus_di_v is not None
             and (plus_di_v > minus_di_v if is_long else minus_di_v > plus_di_v)
         )
-        # ADX and directional movement are mandatory qualification gates.
-        if adx_v is None or adx_v < adx_floor:
+        # Stage 1: a closed candle must clear the range edge with directional
+        # body. Stage 2 uses ADX/DI as quality evidence; rising ADX can qualify
+        # in the lower band, while marginal DI disagreement is scored rather
+        # than automatically vetoing an otherwise clean breakout.
+        adx_ok = bool(
+            adx_v is not None and (
+                adx_v >= adx_floor
+                or (bool(adx_rising) and adx_v >= max(14.0, adx_floor - 6.0) and di_aligned)
+            )
+        )
+        if not adx_ok:
             return _result(
                 "WEAK_TREND", meta, direction=direction,
                 range_high=range_high, range_low=range_low,
                 adx=adx_v, adx_min=adx_floor, plus_di=plus_di_v,
                 minus_di=minus_di_v, di_aligned=di_aligned,
+                adx_rising=bool(adx_rising),
                 session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
-            )
-        if not di_aligned:
-            return _result(
-                "DI_NOT_ALIGNED", meta, direction=direction,
-                range_high=range_high, range_low=range_low, adx=adx_v,
-                adx_min=adx_floor, plus_di=plus_di_v, minus_di=minus_di_v,
-                di_aligned=False, session_rvol=round(session_rvol, 4),
-                rvol_baseline=round(baseline, 8),
             )
 
         macd_min_abs = max(atr_v * 0.01, 1e-12)
         flags = {
             "ema_9_21": bool(e9 is not None and e21 is not None and (e9 > e21 if is_long else e9 < e21)),
             "session_vwap": bool(session_vwap is not None and (current_close > session_vwap if is_long else current_close < session_vwap)),
-            "rsi": bool(rsi_value is not None and (rsi_value >= 55 if is_long else rsi_value <= 45)),
+            "rsi": bool(rsi_value is not None and (rsi_value >= 53 if is_long else rsi_value <= 47)),
             "macd_histogram": bool(hist is not None and abs(float(hist)) >= macd_min_abs and (hist > 0 if is_long else hist < 0)),
             "macd_acceleration": bool(hist is not None and hist_prev is not None and (hist > hist_prev if is_long else hist < hist_prev)),
             "roc": bool(roc_value is not None and (roc_value > 0 if is_long else roc_value < 0)),
+            "di_alignment": di_aligned,
+            "adx_rising": bool(adx_rising),
         }
         passed = sum(flags.values())
-        required = ("ema_9_21", "session_vwap", "rsi", "macd_histogram", "roc")
-        missing = [key for key in required if not flags[key]]
-        if missing:
+        trend_votes = int(flags["ema_9_21"]) + int(flags["session_vwap"])
+        momentum_votes = int(flags["macd_histogram"]) + int(flags["roc"])
+        # Require some independent trend and momentum evidence, but do not
+        # demand RSI, MACD acceleration and DI all agree on the same candle.
+        if passed < 3 or trend_votes < 1 or momentum_votes < 1:
             return _result(
                 "INDICATOR_UNCONFIRMED", meta, direction=direction,
                 range_high=range_high, range_low=range_low, adx=adx_v,
-                plus_di=plus_di_v, minus_di=minus_di_v, di_aligned=True,
-                indicator_confirmation={"checks": flags, "passed": passed, "required": list(required), "failed": missing, "macd_min_abs": macd_min_abs},
+                plus_di=plus_di_v, minus_di=minus_di_v, di_aligned=di_aligned,
+                indicator_confirmation={
+                    "checks": flags, "passed": passed,
+                    "minimum_passed": 3, "trend_votes": trend_votes,
+                    "momentum_votes": momentum_votes,
+                },
                 session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
             )
-        if session_rvol < float(min_rvol):
-            return _result(
-                "LOW_SESSION_RVOL", meta, direction=direction,
-                range_high=range_high, range_low=range_low, adx=adx_v,
-                plus_di=plus_di_v, minus_di=minus_di_v, di_aligned=True,
-                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
-                indicator_confirmation={"checks": flags, "passed": passed},
-            )
-        # Session RVOL can be inflated by a quiet opening candle. Require an
-        # independent rolling 20-bar participation check as well; this value
-        # is supplied by the engine from completed bars only.
+
+        # Use one participation decision, not two independent hard RVOL gates.
+        # Either the session baseline or the rolling baseline may confirm it.
         rolling_rvol = _finite(rvol)
-        rolling_floor = max(1.20, float(min_rvol) * 0.85)
-        if rolling_rvol is None or rolling_rvol < rolling_floor:
+        try:
+            requested_rvol = float(min_rvol)
+        except (TypeError, ValueError, OverflowError):
+            requested_rvol = 1.10
+        if not isfinite(requested_rvol) or requested_rvol <= 0:
+            requested_rvol = 1.10
+        participation_floor = max(1.0, requested_rvol * 0.70)
+        session_volume_ok = session_rvol >= participation_floor
+        rolling_volume_ok = rolling_rvol is not None and rolling_rvol >= participation_floor
+        if not (session_volume_ok or rolling_volume_ok):
             return _result(
-                "LOW_ROLLING_RVOL", meta, direction=direction,
+                "LOW_PARTICIPATION", meta, direction=direction,
                 range_high=range_high, range_low=range_low,
                 session_rvol=round(session_rvol, 4),
-                rolling_rvol=rolling_rvol, rolling_rvol_min=rolling_floor,
+                rolling_rvol=rolling_rvol,
+                participation_min=round(participation_floor, 4),
                 rvol_baseline=round(baseline, 8),
             )
 
-        # Reject wick-only pokes: close at least 0.05 ATR beyond range and body in direction.
-        breakout_buffer = atr_v * 0.05
+        # Stage 1 breakout quality: close beyond a small ATR buffer and body
+        # in the breakout direction. Retests may close nearer to the edge.
+        edge = range_high if is_long else range_low
+        previous_beyond = (
+            close[-2] > edge if is_long else close[-2] < edge
+        ) if n >= 2 else False
+        retest_tolerance = atr_v * 0.15
+        retest_touch = bool(
+            previous_beyond
+            and (
+                (low[-1] <= edge + retest_tolerance and current_close > edge and arrays["close"][-1] > arrays["open"][-1])
+                if is_long else
+                (high[-1] >= edge - retest_tolerance and current_close < edge and arrays["close"][-1] < arrays["open"][-1])
+            )
+        )
+        breakout_buffer = atr_v * 0.03
         body_aligned = arrays["close"][-1] > arrays["open"][-1] if is_long else arrays["close"][-1] < arrays["open"][-1]
-        if ((is_long and current_close < range_high + breakout_buffer) or (not is_long and current_close > range_low - breakout_buffer) or not body_aligned):
+        beyond_buffer = (
+            current_close >= edge + breakout_buffer if is_long
+            else current_close <= edge - breakout_buffer
+        )
+        if not body_aligned or (not beyond_buffer and not retest_touch):
             return _result(
                 "WEAK_BREAKOUT_CLOSE", meta, direction=direction,
-                range_high=range_high, range_low=range_low, breakout_buffer=breakout_buffer,
-                body_aligned=body_aligned, adx=adx_v, plus_di=plus_di_v,
-                minus_di=minus_di_v, di_aligned=True,
-                session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
+                range_high=range_high, range_low=range_low,
+                breakout_buffer=breakout_buffer, body_aligned=body_aligned,
+                retest_touch=retest_touch, adx=adx_v, plus_di=plus_di_v,
+                minus_di=minus_di_v, di_aligned=di_aligned,
+                session_rvol=round(session_rvol, 4), rolling_rvol=rolling_rvol,
                 indicator_confirmation={"checks": flags, "passed": passed},
             )
 
-        edge = range_high if is_long else range_low
         extension = abs(current_close - edge) / atr_v
         breakout_age = 0
         for i in range(n - 1, -1, -1):
@@ -371,8 +400,12 @@ def evaluate(
                 break
             breakout_age += 1
 
+        # Stage 3: allow a direct continuation or a clean retest. A retest is
+        # optional; fast breakouts are never forced to wait for one.
         if breakout_age > int(max_breakout_age_candles):
             state = "STALE_BREAKOUT"
+        elif retest_touch and extension <= max(1.0, float(max_extension_atr)):
+            state = "ORB_RETEST"
         elif extension > float(max_extension_atr):
             state = "EXTENDED_BREAKOUT"
         else:
@@ -387,19 +420,24 @@ def evaluate(
             breakout_age_candles=breakout_age,
             range_candles=len(indexes),
             session_rvol=round(session_rvol, 4),
-            rolling_rvol=round(rolling_rvol, 4),
-            rolling_rvol_min=round(rolling_floor, 4),
+            rolling_rvol=round(rolling_rvol, 4) if rolling_rvol is not None else None,
+            rolling_rvol_min=round(participation_floor, 4),
+            participation_floor=round(participation_floor, 4),
+            participation_confirmed=True,
             rvol_baseline=round(baseline, 8),
             session_vwap=session_vwap,
             indicator_confirmation={
                 "checks": flags, "passed": passed,
+                "minimum_passed": 3, "trend_votes": trend_votes,
+                "momentum_votes": momentum_votes,
                 "ema9": e9, "ema21": e21, "vwap": session_vwap,
                 "rsi": rsi_value, "macd_histogram": hist, "roc": roc_value,
             },
             adx=adx_v, adx_min=adx_floor,
             plus_di=plus_di_v, minus_di=minus_di_v,
-            trend_confirmed=True, di_aligned=True, adx_rising=bool(adx_rising),
-            failed_breakout=False,
+            trend_confirmed=bool(adx_ok), di_aligned=di_aligned,
+            adx_rising=bool(adx_rising), wick_quality=bool(body_aligned),
+            retest_touch=bool(retest_touch), failed_breakout=False,
         )
     except (KeyError, TypeError, ValueError, OverflowError, IndexError, FloatingPointError):
         return {"state": "INVALID_DATA", "session": str(session).lower()}
