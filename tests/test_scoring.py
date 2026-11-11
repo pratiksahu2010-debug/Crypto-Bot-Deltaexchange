@@ -270,6 +270,20 @@ def test_normal_adx_score_uses_only_the_adx_threshold():
     assert "below 25" in weaker_adx.explanation
 
 
+def test_mex_score_rewards_early_confirmation_without_lagging_ema_rsi():
+    engine = ScoringEngine()
+    score = engine.score_momentum_explosion({
+        "direction": "LONG", "compression_active": True,
+        "atr_expansion": 1.04, "rvol": 1.25,
+        "ema_aligned": False, "structure_break": False,
+        "macd_direction_ok": True, "macd_accel": True,
+        "roc_direction_ok": True, "rsi": 49.0, "rsi_accel": False,
+        "adx": 16.0, "adx_rising": True, "bw_expand": False,
+    }, "LONG")
+    assert score.total >= 8.0
+    assert score.max_total == 10.0
+
+
 def test_momentum_macd_direction_scores_without_candle_body():
     engine = ScoringEngine()
     aligned = engine.score_momentum({"macd_direction_ok": True}, "LONG")
