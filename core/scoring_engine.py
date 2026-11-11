@@ -162,9 +162,22 @@ class ScoringEngine:
             f"RSI {rsi_value:.1f} supports direction" if rsi_ok else "RSI not directionally aligned")
 
         adx_value = values.get("adx")
-        adx_ok = adx_value is not None and adx_value >= 25.0
-        add("ADX 14", 2.0 if adx_ok else 0.0, 2.0, adx_value,
-            f"ADX {adx_value:.1f}; minimum 25" if adx_ok else "ADX below 25")
+        adx_rising = bool(values.get("adx_rising"))
+        plus_di, minus_di = values.get("plus_di"), values.get("minus_di")
+        di_ok = (
+            plus_di is not None and minus_di is not None
+            and (plus_di > minus_di if is_long else minus_di > plus_di)
+        )
+        adx_full = adx_value is not None and adx_value >= 25.0
+        adx_early = (
+            adx_value is not None and 20.0 <= adx_value < 25.0
+            and adx_rising and di_ok
+        )
+        adx_points = 2.0 if adx_full else 1.0 if adx_early else 0.0
+        add("ADX 14", adx_points, 2.0, adx_value,
+            f"ADX {adx_value:.1f}; full-strength band" if adx_full else
+            f"ADX {adx_value:.1f}; rising early band with DI alignment" if adx_early else
+            "ADX below strength requirement or early confirmation absent")
 
         atr_value = values.get("atr")
         atr_ok = atr_value is not None and atr_value > 0
