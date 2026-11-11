@@ -1,4 +1,4 @@
-"""Structure-aware ATR risk levels for signal-only alerts."""
+"""Swing-structure stop-loss and R-multiple targets for signal-only alerts."""
 from typing import Optional
 from dataclasses import dataclass
 import math
@@ -28,21 +28,31 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
     ):
         return None
     is_long=direction=="LONG"
-    # Structural stop with an ATR safety buffer; reject pathological distant structure.
+    # The stop must sit beyond a confirmed structural swing. ATR is used only
+    # as a small buffer and a sanity ceiling; it must never replace the swing.
+    try:
+        swing_low = float(swing_low) if swing_low is not None else None
+        swing_high = float(swing_high) if swing_high is not None else None
+    except (TypeError, ValueError, OverflowError):
+        return None
     if is_long:
-        structural=(swing_low-0.15*atr) if swing_low and swing_low<price else price-atr*atr_mult_sl
-        sl=max(price-atr*2.5, min(price-atr*0.8, structural))
-        if sl>=price: sl=price-atr*atr_mult_sl
-        risk=price-sl
-        # Legacy parameter names are retained for compatibility; targets are R-multiples.
+        if swing_low is None or not math.isfinite(swing_low) or swing_low <= 0 or swing_low >= price:
+            return None
+        sl = swing_low - 0.15 * atr
+        risk = price - sl
+        # Reject an excessively distant swing; do not pull the stop closer and
+        # silently turn a structural stop into an ATR stop.
+        if risk <= 0 or risk > 3.0 * atr:
+            return None
         targets=[price+multiplier*risk for multiplier in reward_multipliers]
         zone=(price-0.15*atr,price+0.10*atr)
     else:
-        structural=(swing_high+0.15*atr) if swing_high and swing_high>price else price+atr*atr_mult_sl
-        sl=min(price+atr*2.5, max(price+atr*0.8, structural))
-        if sl<=price: sl=price+atr*atr_mult_sl
-        risk=sl-price
-        # Legacy parameter names are retained for compatibility; targets are R-multiples.
+        if swing_high is None or not math.isfinite(swing_high) or swing_high <= price:
+            return None
+        sl = swing_high + 0.15 * atr
+        risk = sl - price
+        if risk <= 0 or risk > 3.0 * atr:
+            return None
         targets=[price-multiplier*risk for multiplier in reward_multipliers]
         zone=(price-0.10*atr,price+0.15*atr)
     if risk <= 0:
