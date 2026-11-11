@@ -81,6 +81,7 @@ class SignalManager:
             tp1_hit=False, tp2_hit=False, tp3_hit=False, sl_hit=False,
         )
         item["signal_id"] = self._signal_id(item)
+        signal["signal_id"] = item["signal_id"]
         self._signals[key] = item
         self._evict()
         logger.info(f"Signal ACTIVE {key} score={item.get('score')}")
