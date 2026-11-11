@@ -38,7 +38,7 @@ from indicators.ema import ema_series
 PRIMARY_CANDLE_HISTORY = 300
 VALID_MOMENTUM_STATES = frozenset({
     "EXPLOSION", "SQUEEZE_RELEASE", "PRE_EXPLOSION_SIGNAL", "CONTINUATION",
-    "VOLUME_SPIKE", "ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST",
+    "VOLUME_SPIKE", "ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING",
 })
 
 
@@ -1240,6 +1240,7 @@ class SignalEngine:
                             orb_arr, orb_atr, orb_rvol, session=session_name,
                             min_rvol=settings.orb_min_rvol,
                             max_extension_atr=settings.orb_max_extension_atr,
+                            max_pullback_extension_atr=1.50,
                             adx_value=adx_v,
                             plus_di=plus_di,
                             minus_di=minus_di,
@@ -1249,7 +1250,7 @@ class SignalEngine:
                         for session_name in session_names
                     ]
                     valid = [item for item in results
-                             if item.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")]
+                             if item.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING")]
                     if valid:
                         # If both qualify on one candle, prefer the newer session's range.
                         orb_result = max(valid, key=lambda item: item.get("session_start_utc_ms", 0))
@@ -1302,7 +1303,7 @@ class SignalEngine:
             # PRE_EXPLOSION can be observed before MACD fully turns.
             short_roc = ((float(close[-1]) / float(close[-4]) - 1.0) * 100.0
                          if len(close) >= 4 and float(close[-4]) > 0 else 0.0)
-            if orb_result.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"):
+            if orb_result.get("state") in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING"):
                 direction = orb_result.get("direction")
             elif orb_result.get("state") == "ORB_FAILED_BREAKOUT":
                 # Do not let a failed ORB breakout immediately re-enter as a
@@ -1568,7 +1569,7 @@ class SignalEngine:
             # that would narrow valid detector states and delay early breakouts.
             momentum_gates = _momentum_entry_gates(
                 momentum_state, atr_v, extension,
-                bypass_anti_chase=momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"),
+                bypass_anti_chase=momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING"),
             )
             failed = [name for name, passed in momentum_gates.items() if not passed]
             if failed:
@@ -1584,7 +1585,7 @@ class SignalEngine:
                     min_rvol=settings.orb_min_rvol,
                     max_extension_atr=settings.orb_max_extension_atr,
                 )
-                if momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
+                if momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING")
                 else self.momentum_scoring.score_momentum_explosion(indicators, direction)
                 if momentum_state in ("EXPLOSION", "SQUEEZE_RELEASE", "PRE_EXPLOSION_SIGNAL")
                 else self.momentum_scoring.score_momentum(indicators, direction)
@@ -1599,7 +1600,7 @@ class SignalEngine:
         # A detector-qualified ORB is independent of the generic Momentum score.
         orb_qualified = bool(
             engine == "momentum"
-            and momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
+            and momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING")
             and orb_result.get("direction") == direction
             and orb_result.get("state") == momentum_state
         )
@@ -1630,7 +1631,7 @@ class SignalEngine:
         indicators["confirmation_candles"] = 1
 
         swing_high, swing_low = _confirmed_swing_levels(high, low, lookback=30, left=2, right=2)
-        if engine == "momentum" and strategy in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"):
+        if engine == "momentum" and strategy in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST", "ORB_PULLBACK_PENDING"):
             # ORB invalidation belongs beyond the opening-range opposite edge,
             # not an arbitrary last-seven-candle micro swing.
             swing_low = indicators.get("orb_range_low")
@@ -1721,7 +1722,9 @@ class SignalEngine:
             logger.info(f"SIGNAL_STAGE pair={pair} engine={engine} stage=initial_entry_price_check duration_ms={(asyncio.get_running_loop().time() - entry_price_started) * 1000.0:.1f}")
             zone_low, zone_high = risk.entry_zone_low, risk.entry_zone_high
             entry_state = (
-                classify_entry_state(live_price, risk.entry, zone_low, zone_high, direction)
+                "RETEST"
+                if strategy == "ORB_PULLBACK_PENDING"
+                else classify_entry_state(live_price, risk.entry, zone_low, zone_high, direction)
                 if live_price is not None else "EXPIRED"
             )
             if entry_state == "RETEST":
