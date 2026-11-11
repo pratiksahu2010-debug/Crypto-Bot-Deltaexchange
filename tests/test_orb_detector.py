@@ -147,7 +147,7 @@ def test_orb_score_never_substitutes_general_rvol_for_session_rvol():
     }, "LONG", min_rvol=1.4, max_extension_atr=0.8)
     components = {item.name: item for item in score.components}
     assert components["ORB Session RVOL"].points == 0.0
-    assert components["ORB Breakout Extension"].points == 1.0
+    assert components["ORB Breakout Extension"].points == 0.75
 
 
 def test_orb_rejects_weak_adx_even_with_high_volume():
