@@ -154,7 +154,7 @@ def test_normal_40_and_momentum_100_fixed_allowlists():
 
 
 
-def test_turnover_never_excludes_static_symbols(monkeypatch):
+def test_low_turnover_static_symbols_are_excluded_from_alert_universe(monkeypatch):
     async def run():
         class TurnoverRest(FakeRest):
             async def get_ticker(self):
@@ -180,8 +180,9 @@ def test_turnover_never_excludes_static_symbols(monkeypatch):
         monkeypatch.setattr("exchange.symbol_manager.settings.momentum_min_24h_turnover_usdt", 500_000)
         await manager.load_and_validate()
 
-        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.whitelist_diagnostics["ETHUSDT"]["status"] == "LOW_TURNOVER"
 
     asyncio.run(run())
 
@@ -202,8 +203,8 @@ def test_unknown_turnover_does_not_empty_static_universe(monkeypatch):
         monkeypatch.setattr(manager, "_load_yaml", lambda path: ["B-BTC_USDT"])
         await manager.load_and_validate()
 
-        assert manager.normal_symbols == ["B-BTC_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.normal_symbols == []
+        assert manager.momentum_symbols == []
         assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
 
     asyncio.run(run())
