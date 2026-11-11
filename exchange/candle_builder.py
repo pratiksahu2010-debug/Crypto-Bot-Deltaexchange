@@ -8,6 +8,10 @@ from config import settings
 from utils.logger import logger
 
 
+# Keep one forming WebSocket candle in addition to the engine's 300 completed bars.
+MIN_PRIMARY_BUFFER_CAPACITY = 301
+
+
 class CandleBuffer:
     def __init__(self, max_len: int = 300):
         self.max_len = max_len
@@ -79,7 +83,9 @@ class CandleBuilder:
         if pair not in self.buffers:
             self.buffers[pair] = {}
         if tf not in self.buffers[pair]:
-            self.buffers[pair][tf] = CandleBuffer(settings.max_candles_buffer)
+            self.buffers[pair][tf] = CandleBuffer(
+                max(int(settings.max_candles_buffer), MIN_PRIMARY_BUFFER_CAPACITY)
+            )
         return self.buffers[pair][tf]
 
     def seed(self, pair: str, tf: str, candles: List[dict]) -> None:
