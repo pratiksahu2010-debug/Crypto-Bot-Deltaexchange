@@ -103,3 +103,12 @@ def test_squeeze_release_needs_macd_roc_and_directional_di():
     assert squeeze_release(indicators())
     assert not squeeze_release(indicators(macd_direction_ok=False))
     assert not squeeze_release(indicators(plus_di=10.0, minus_di=30.0))
+
+
+def test_volume_spike_requires_actual_atr_expansion():
+    from strategies.momentum.volume_expansion import evaluate as volume_spike
+
+    setup = indicators(rvol=1.8, atr_expansion=1.08)
+    assert volume_spike(setup)
+    assert not volume_spike({**setup, "atr_expansion": 1.02})
+    assert not volume_spike({**setup, "rvol": 1.40})
