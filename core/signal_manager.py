@@ -24,10 +24,12 @@ class SignalManager:
         return f"{base}:{int(candle)}" if candle is not None else base
 
     def _matching(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> List[dict]:
-        base = self._key(pair, engine, direction, strategy)
         return [
             item for item in self._signals.values()
-            if self._key(item["pair"], item["engine"], item["direction"], item.get("strategy")) == base
+            if item.get("pair") == pair
+            and item.get("engine") == engine
+            and item.get("direction") == direction
+            and (strategy is None or item.get("strategy") == strategy)
         ]
 
     @staticmethod
