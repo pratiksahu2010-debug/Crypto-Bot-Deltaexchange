@@ -1378,7 +1378,11 @@ class SignalEngine:
                 )
                 return
             result = (
-                self.momentum_scoring.score_orb(indicators, direction)
+                self.momentum_scoring.score_orb(
+                    indicators, direction,
+                    min_rvol=settings.orb_min_rvol,
+                    max_extension_atr=settings.orb_max_extension_atr,
+                )
                 if momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
                 else self.momentum_scoring.score_momentum_explosion(indicators, direction)
                 if momentum_state in ("EXPLOSION", "SQUEEZE_RELEASE", "PRE_EXPLOSION_SIGNAL")
@@ -1391,9 +1395,17 @@ class SignalEngine:
             f"{c.name}:{c.points:g}/{c.max_points:g}" for c in result.components
         )
 
+        # A detector-qualified ORB is independent of the generic Momentum score.
+        orb_qualified = bool(
+            engine == "momentum"
+            and momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST")
+            and orb_result.get("direction") == direction
+            and orb_result.get("state") == momentum_state
+        )
+
         # Normal score is diagnostic after its explicit indicator gates.
         # SIGNAL_THRESHOLD belongs to Momentum, not the Normal engine.
-        if engine == "momentum" and result.total < 5.5:
+        if engine == "momentum" and not orb_qualified and result.total < 5.5:
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
@@ -1467,7 +1479,7 @@ class SignalEngine:
         # Normal signals pass explicit indicator/optional participation and
         # actionable-entry checks; their score is diagnostic. Momentum has its own disposition.
         disposition = (
-            "SIGNAL" if engine == "normal"
+            "SIGNAL" if engine == "normal" or orb_qualified
             else _score_disposition(result.total, settings.signal_threshold)
         )
         if disposition == "SIGNAL":
