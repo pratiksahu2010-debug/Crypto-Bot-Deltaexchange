@@ -147,3 +147,105 @@ def test_signal_lifecycle_update_targets_only_matching_candle_after_reentry(tmp_
             db.engine, db.SessionLocal = old_engine, old_factory
             await engine.dispose()
     asyncio.run(run())
+
+
+def test_orb_mex_candidate_persistence_directional_excursions_and_windows(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'strategy_candidates.db'}")
+        old_engine, old_factory = db.engine, db.SessionLocal
+        db.engine = engine
+        db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            base_ts = 1_800_000_000_000
+            common = {
+                "pair": "B-BTC_USDT", "engine": "momentum",
+                "strategy_family": "ORB", "strategy": "ORB_BREAKOUT",
+                "candidate_ts": base_ts, "entry_price": 100.0,
+                "atr_value": 2.0, "decision": "CANDIDATE",
+                "stage": "ENTRY_QUALIFIED", "payload": {},
+            }
+            assert await repositories.save_strategy_candidate({
+                **common, "direction": "LONG",
+            })
+            # Idempotent insert: the same strategy/candle/direction remains one row.
+            assert await repositories.save_strategy_candidate({
+                **common, "direction": "LONG", "stage": "DUPLICATE",
+            })
+            assert await repositories.save_strategy_candidate({
+                **common, "direction": "SHORT", "strategy": "ORB_RETEST",
+            })
+            for index in range(1, 13):
+                ts = base_ts + index * 300_000
+                updated = await repositories.update_strategy_candidate_outcomes(
+                    "B-BTC_USDT", ts, high=102.0, low=97.0, close=100.5,
+                    interval_ms=300_000,
+                )
+                assert updated == 2
+            from database.models import StrategyCandidateRecord
+            from sqlalchemy import select
+            async with db.SessionLocal() as session:
+                rows = (await session.execute(select(StrategyCandidateRecord))).scalars().all()
+            assert len(rows) == 2
+            by_direction = {row.direction: row for row in rows}
+            long_row, short_row = by_direction["LONG"], by_direction["SHORT"]
+            assert long_row.outcome == "OBSERVED_12"
+            assert short_row.outcome == "OBSERVED_12"
+            assert long_row.bars_observed == short_row.bars_observed == 12
+            assert long_row.mfe_pct == pytest.approx(2.0)
+            assert long_row.mae_pct == pytest.approx(-3.0)
+            assert short_row.mfe_pct == pytest.approx(3.0)
+            assert short_row.mae_pct == pytest.approx(-2.0)
+            assert await repositories.strategy_candidate_performance_report(30)
+            report = await repositories.strategy_candidate_performance_report(30)
+            group = report["groups"]["ORB:ORB_BREAKOUT"]
+            assert group["count"] == 1
+            assert group["windows"]["3"]["sample_count"] == 1
+            assert group["windows"]["6"]["sample_count"] == 1
+            assert group["windows"]["12"]["sample_count"] == 1
+            assert group["windows"]["12"]["reached_1_atr"] == 1
+        finally:
+            db.engine, db.SessionLocal = old_engine, old_factory
+            await engine.dispose()
+    asyncio.run(run())
+
+
+def test_strategy_candidate_gap_does_not_fake_observation_window(tmp_path):
+    async def run():
+        engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'candidate_gap.db'}")
+        old_engine, old_factory = db.engine, db.SessionLocal
+        db.engine = engine
+        db.SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+        try:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            base_ts = 1_800_000_000_000
+            candidate = {
+                "pair": "B-ETH_USDT", "engine": "momentum",
+                "strategy_family": "MEX", "strategy": "PRE_EXPLOSION",
+                "direction": "LONG", "candidate_ts": base_ts,
+                "entry_price": 100.0, "atr_value": 1.0,
+                "decision": "WATCHLIST", "stage": "EARLY_CANDIDATE",
+            }
+            assert await repositories.save_strategy_candidate(candidate)
+            # A 10-minute jump is not counted as one completed 5-minute observation.
+            assert await repositories.update_strategy_candidate_outcomes(
+                "B-ETH_USDT", base_ts + 600_000, 103.0, 99.0, 102.0,
+                interval_ms=300_000,
+            ) == 0
+            from database.models import StrategyCandidateRecord
+            async with db.SessionLocal() as session:
+                row = await session.get(
+                    StrategyCandidateRecord,
+                    "B-ETH_USDT:MEX:PRE_EXPLOSION:LONG:" + str(base_ts),
+                )
+            assert row is not None
+            assert row.bars_observed == 0
+            assert row.outcome == "ACTIVE"
+            import json
+            assert json.loads(row.payload)["data_gap"] is True
+        finally:
+            db.engine, db.SessionLocal = old_engine, old_factory
+            await engine.dispose()
+    asyncio.run(run())
