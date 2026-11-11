@@ -792,7 +792,7 @@ def test_normal_engine_has_no_macd_gate():
     # Missing or opposing MACD data must not affect Normal Engine approval.
     without_macd = _normal_threshold_gates(base, "LONG", 25.0)
     opposing_macd = _normal_threshold_gates({**base, "macd_hist": -999.0}, "LONG", 25.0)
-    assert len(without_macd) == 6
+    assert len(without_macd) == 5
     assert all(without_macd.values())
     assert opposing_macd == without_macd
 
