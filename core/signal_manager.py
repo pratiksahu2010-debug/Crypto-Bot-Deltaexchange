@@ -14,27 +14,28 @@ class SignalManager:
         self._signals: Dict[str, dict] = {}
         self._evicted: List[dict] = []
 
-    def _key(self, pair: str, engine: str, direction: str) -> str:
-        return f"{pair}:{engine}:{direction}"
+    def _key(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> str:
+        base = f"{pair}:{engine}:{direction}"
+        return f"{base}:{strategy}" if strategy else base
 
     def _record_key(self, signal: dict) -> str:
-        base = self._key(signal["pair"], signal["engine"], signal["direction"])
+        base = self._key(signal["pair"], signal["engine"], signal["direction"], signal.get("strategy"))
         candle = signal.get("candle_time_ms") or signal.get("candle_ts")
         return f"{base}:{int(candle)}" if candle is not None else base
 
-    def _matching(self, pair: str, engine: str, direction: str) -> List[dict]:
-        base = self._key(pair, engine, direction)
+    def _matching(self, pair: str, engine: str, direction: str, strategy: Optional[str] = None) -> List[dict]:
+        base = self._key(pair, engine, direction, strategy)
         return [
             item for item in self._signals.values()
-            if self._key(item["pair"], item["engine"], item["direction"]) == base
+            if self._key(item["pair"], item["engine"], item["direction"], item.get("strategy")) == base
         ]
 
     @staticmethod
     def _signal_id(signal: dict) -> str:
         candle = signal.get("candle_time_ms") or signal.get("candle_ts")
         if candle is not None:
-            return f"{signal['pair']}:{signal['engine']}:{signal['direction']}:{int(candle)}"
-        return f"{signal['pair']}:{signal['engine']}:{signal['direction']}:{signal.get('created_at', '')}"
+            return f"{signal['pair']}:{signal['engine']}:{signal['direction']}:{signal.get('strategy', '')}:{int(candle)}"
+        return f"{signal['pair']}:{signal['engine']}:{signal['direction']}:{signal.get('strategy', '')}:{signal.get('created_at', '')}"
 
     def can_reenter(self, signal: dict) -> bool:
         """Allow a later-candle setup only after every prior active setup hit TP1."""
@@ -42,7 +43,7 @@ class SignalManager:
         if candle is None:
             return not any(
                 old.get("status") == "active"
-                for old in self._matching(signal["pair"], signal["engine"], signal["direction"])
+                for old in self._matching(signal["pair"], signal["engine"], signal["direction"], signal.get("strategy"))
             )
         try:
             candle = int(candle)
