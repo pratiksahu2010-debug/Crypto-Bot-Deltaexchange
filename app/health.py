@@ -244,6 +244,7 @@ async def health(request: Request):
             and state.get("telegram_delivery_task_status") != "running"
         )
         market_data_not_ready = not market_data["ready"]
+        websocket_not_ready = settings.enable_websocket and websocket.get("status") != "connected"
         if (
             database == "unavailable"
             or database_paused
@@ -259,6 +260,7 @@ async def health(request: Request):
             or delivery_task_not_running
             or scan_cycle_stale
             or market_data_not_ready
+            or websocket_not_ready
         ):
             reasons = []
             if database == "unavailable" or database_paused:
@@ -288,6 +290,8 @@ async def health(request: Request):
                 reasons.append("scan_cycle_not_fresh_or_not_started")
             if market_data_not_ready:
                 reasons.append("per_symbol_candle_data_not_ready")
+            if websocket_not_ready:
+                reasons.append("websocket_subscription_not_ready")
             return JSONResponse(
                 status_code=503,
                 content={
