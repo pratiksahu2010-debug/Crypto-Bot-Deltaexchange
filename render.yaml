@@ -43,7 +43,7 @@ services:
       - key: ORB_NEW_YORK_ENABLED
         value: "true"
       - key: ORB_MIN_RVOL
-        value: "1.30"
+        value: "1.50"
       - key: ORB_MAX_EXTENSION_ATR
         value: "0.80"
       - key: ORB_ACTIVE_MINUTES
