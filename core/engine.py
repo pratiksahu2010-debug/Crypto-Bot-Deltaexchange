@@ -1059,7 +1059,11 @@ class SignalEngine:
                 "MARKET_DATA_BACKFILL pair=%s engine=%s rows=%s duration_ms=%.1f",
                 pair, engine, len(data), candle_fetch_ms,
             )
-            if len(data) < 50:
+            if len(data) < PRIMARY_CANDLE_HISTORY:
+                logger.warning(
+                    "MARKET_DATA_SKIP pair=%s tf=%s reason=insufficient_history rows=%s required=%s",
+                    pair, primary, len(data), PRIMARY_CANDLE_HISTORY,
+                )
                 return
             self.candles.seed(pair, primary, data)
             arr = self.candles.get_completed_arrays(pair, primary)
