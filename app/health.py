@@ -116,6 +116,20 @@ def _market_data_freshness(request: Request) -> dict:
                 )
             except (TypeError, ValueError, OverflowError):
                 effective_candle_age = None
+            history_count = None
+            required_history_count = 300
+            if isinstance(item, dict):
+                history_count = item.get("completed_history_count")
+                if history_count is None:
+                    history_count = item.get("candle_count")
+                required_history_count = item.get("required_history_count") or 300
+            try:
+                history_count_ready = (
+                    history_count is None
+                    or int(history_count) >= int(required_history_count)
+                )
+            except (TypeError, ValueError, OverflowError):
+                history_count_ready = False
             healthy = (
                 isinstance(item, dict)
                 and status == "fresh"
@@ -124,6 +138,7 @@ def _market_data_freshness(request: Request) -> dict:
                 and effective_candle_age is not None
                 and 0.0 <= effective_candle_age <= candle_age_limit
                 and item.get("history_ready") is not False
+                and history_count_ready
                 and int(item.get("missing_candle_count") or 0) == 0
             )
             feed_details[pair][interval] = {
@@ -135,7 +150,7 @@ def _market_data_freshness(request: Request) -> dict:
                 "last_completed_close_ms": item.get("last_completed_close_ms") if isinstance(item, dict) else None,
                 "candle_count": item.get("candle_count") if isinstance(item, dict) else None,
                 "completed_history_count": item.get("completed_history_count") if isinstance(item, dict) else None,
-                "required_history_count": item.get("required_history_count") if isinstance(item, dict) else None,
+                "required_history_count": required_history_count if isinstance(item, dict) else None,
                 "history_ready": item.get("history_ready") if isinstance(item, dict) else None,
                 "duplicate_row_count": item.get("duplicate_row_count") if isinstance(item, dict) else None,
                 "out_of_order_row_count": item.get("out_of_order_row_count") if isinstance(item, dict) else None,
