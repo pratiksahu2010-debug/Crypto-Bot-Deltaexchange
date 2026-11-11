@@ -137,3 +137,35 @@ def test_websocket_requires_ack_for_every_subscribed_symbol():
     })
     assert stream.connected
     assert stream._subscribed_channels == {"candlestick_5m"}
+
+
+
+def test_market_data_warmup_counts_completed_bars_not_forming_bar(monkeypatch):
+    import asyncio
+    import time
+    from config import settings
+    from exchange.market_data import MarketData
+
+    monkeypatch.setattr(settings, "candle_close_grace_seconds", 0)
+    duration = 300_000
+    current_open = int(time.time() * 1000) // duration * duration
+    builder = CandleBuilder()
+    initial = [
+        _candle(current_open - i * duration, 100 + i / 1000)
+        for i in range(299, 0, -1)
+    ]
+    builder.seed("B-BTC_USDT", "5m", initial)
+    builder.on_candle("B-BTC_USDT", "5m", _candle(current_open, 101))
+
+    class Rest:
+        async def get_candles(self, pair, interval, limit):
+            assert limit == 320
+            return [
+                _candle(current_open - i * duration, 100 + i / 1000)
+                for i in range(300, 0, -1)
+            ]
+
+    market_data = MarketData(Rest(), builder)
+    assert asyncio.run(market_data.ensure_buffer("B-BTC_USDT", "5m"))
+    completed = builder.get_completed_arrays("B-BTC_USDT", "5m")
+    assert len(completed["close"]) == 300
