@@ -5,14 +5,22 @@ def evaluate(indicators):
     import math
     try:
         ratio = float(indicators.get("atr_expansion"))
+        adx = float(indicators.get("adx"))
+        plus_di = float(indicators.get("plus_di"))
+        minus_di = float(indicators.get("minus_di"))
     except (TypeError, ValueError, OverflowError):
         return False
-    if not math.isfinite(ratio) or ratio < 1.08:
+    if not all(math.isfinite(x) for x in (ratio, adx, plus_di, minus_di)):
+        return False
+    if ratio < 1.08 or adx < 20.0:
         return False
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
         return False
-    roc_ok = indicators.get("roc_direction_ok") is True
-    macd_ok = indicators.get("macd_direction_ok") is True
-    ema_ok = indicators.get("ema_aligned") is True
-    return bool((roc_ok or macd_ok) and (ema_ok or roc_ok))
+    di_ok = plus_di > minus_di if direction == "LONG" else minus_di > plus_di
+    return bool(
+        di_ok
+        and indicators.get("roc_direction_ok") is True
+        and indicators.get("macd_direction_ok") is True
+        and indicators.get("ema_aligned") is True
+    )
