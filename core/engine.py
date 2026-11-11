@@ -648,7 +648,7 @@ class SignalEngine:
                 pair, engine, direction = signal.get("pair"), signal.get("engine"), signal.get("direction")
                 if not pair or not engine or direction not in ("LONG", "SHORT"):
                     continue
-                identity = (pair, engine)
+                identity = (pair, engine, signal.get("strategy"))
                 if identity in restored_pair_engine:
                     # Historical database rows may contain opposite or duplicate
                     # direction candidates from before the exclusivity policy.
