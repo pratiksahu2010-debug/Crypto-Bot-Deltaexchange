@@ -106,7 +106,7 @@ def test_orb_scoring_rewards_clean_breakout_and_penalizes_extension():
 
     engine = ScoringEngine()
     clean = engine.score_orb({
-        "rvol": 1.8, "orb_session_rvol": 1.8, "close": 102.0, "vwap": 101.0,
+        "rvol": 1.8, "orb_session_rvol": 1.8, "orb_rolling_rvol": 1.8, "close": 102.0, "vwap": 101.0,
         "ema9": 101.5, "ema21": 100.0, "rsi": 60.0, "atr": 0.5,
         "orb_breakout_extension_atr": 0.25, "macd_direction_ok": True,
         "roc_direction_ok": True,
