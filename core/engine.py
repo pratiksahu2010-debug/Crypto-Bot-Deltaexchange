@@ -401,7 +401,7 @@ class SignalEngine:
                 return
             self._live_last_tick[pair] = now_mono
             self.on_intrabar_candle(pair, timeframe, candle)
-            mode = str(getattr(settings, "live_ignition_mode", "live")).lower()
+            mode = str(getattr(settings, "live_ignition_mode", "off")).strip().lower()
             if mode not in ("live", "shadow") or pair not in self.symbols.momentum_symbols:
                 return
             interval_ms = int(parse_interval(timeframe).total_seconds() * 1000)
