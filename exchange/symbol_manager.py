@@ -245,7 +245,7 @@ class SymbolManager:
         ) -> List[str]:
             # Keep the complete configured allowlist. Apply the limit after
             # stale-feed quarantine so a healthy next member can fill that slot.
-            # Turnover is telemetry only and never gates static membership.
+            # Turnover eligibility is applied separately in _select_active_symbols.
             configured = list(preferences.keys())
             available_by_key = {self._norm(pair): pair for pair in self.valid_pairs}
             selected: List[str] = []
@@ -308,7 +308,7 @@ class SymbolManager:
 
 
     async def _refresh_liquidity_ranking(self) -> None:
-        """Refresh estimated turnover telemetry; static allowlist order remains authoritative."""
+        """Refresh 24h turnover inputs; static allowlist order remains authoritative."""
         ticker_rows = await self.rest.get_ticker()
         latest = self._ticker_liquidity(ticker_rows)
         if not latest:
@@ -336,8 +336,8 @@ class SymbolManager:
             )
             return
 
-        # Turnover is retained strictly as diagnostic telemetry. It never
-        # changes membership, ordering, or eligibility of the static allowlists.
+        # Updated turnover is consumed by _select_active_symbols on the next
+        # universe refresh; configured YAML order remains authoritative.
         self.liquidity.update(updated_liquidity)
         self._last_liquidity_refresh = __import__("time").time()
 
@@ -448,7 +448,7 @@ class SymbolManager:
         logger.info(
             f"ACTIVE_FIXED_UNIVERSE normal={len(self.normal_symbols)} "
             f"momentum={len(self.momentum_symbols)} quarantined={len(self._quarantined)} "
-            "turnover_filter=disabled"
+            "turnover_filter=enabled"
         )
 
     async def refresh_universes(self) -> None:
