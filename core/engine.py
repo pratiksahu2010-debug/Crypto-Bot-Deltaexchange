@@ -1060,6 +1060,9 @@ class SignalEngine:
                 pair, engine, len(data), candle_fetch_ms,
             )
             if len(data) < PRIMARY_CANDLE_HISTORY:
+                recorder = getattr(self.rest, "record_completed_history_count", None)
+                if callable(recorder):
+                    recorder(pair, primary, len(data), PRIMARY_CANDLE_HISTORY)
                 logger.warning(
                     "MARKET_DATA_SKIP pair=%s tf=%s reason=insufficient_history rows=%s required=%s",
                     pair, primary, len(data), PRIMARY_CANDLE_HISTORY,
@@ -1069,6 +1072,9 @@ class SignalEngine:
             arr = self.candles.get_completed_arrays(pair, primary)
 
         completed_count = len(arr.get("close", [])) if arr else 0
+        recorder = getattr(self.rest, "record_completed_history_count", None)
+        if callable(recorder):
+            recorder(pair, primary, completed_count, PRIMARY_CANDLE_HISTORY)
         if completed_count < PRIMARY_CANDLE_HISTORY:
             logger.warning(
                 "MARKET_DATA_SKIP pair=%s engine=%s reason=insufficient_completed_history "
