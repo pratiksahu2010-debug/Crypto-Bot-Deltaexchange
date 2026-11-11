@@ -48,3 +48,42 @@ def test_orb_15m_opening_range_is_not_reported_as_signal_confirmation():
     # That is the ORB's own range definition, not a second signal timeframe.
     from strategies.momentum.orb_detector import opening_range
     assert callable(opening_range)
+
+
+
+def test_signal_formats_hide_candle_and_signal_timing_metadata():
+    normal = TelegramBot().format_signal({
+        "pair": "BTC_USDT",
+        "engine": "normal",
+        "strategy": "TREND",
+        "direction": "LONG",
+        "timestamp": "2026-11-09T15:50:34+00:00",
+        "candle_time_ms": 1794239100000,
+        "candle_close_time_ms": 1794239400000,
+        "entry_checked_at": "2026-11-09T15:50:34+00:00",
+        "signal_age_seconds": 34.6,
+        "indicators": {},
+    })
+    sequential = TelegramBot().format_signal({
+        "pair": "BTC_USDT",
+        "engine": "signals",
+        "strategy": "SEQUENTIAL_ENTRY",
+        "direction": "LONG",
+        "timestamp": "2026-11-09T15:50:34+00:00",
+        "candle_time_ms": 1794239100000,
+        "signal_age_seconds": 34.6,
+        "indicators": {},
+    })
+    for message in (normal, sequential):
+        for hidden_label in (
+            "CANDLE TIMING",
+            "CANDLE OPEN",
+            "CANDLE CLOSE",
+            "CANDLE TIME",
+            "15M CONTEXT OPEN",
+            "ENTRY CHECKED",
+            "SIGNAL GENERATED",
+            "SIGNAL AGE",
+        ):
+            assert hidden_label not in message
+        assert "Signal only — no automated trading." in message
