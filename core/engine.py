@@ -1958,7 +1958,7 @@ class SignalEngine:
                 continue
             queued = await self._queue_telegram_signal(signal)
             if queued:
-                self.cooldowns[engine].set(pair, engine, direction, strategy=strategy)
+                self.cooldowns[engine].set(pair, engine, direction, strategy=signal.get("strategy"))
                 from database.repositories import save_signal
                 active = self.signals[engine].get(pair, engine, direction, signal.get("signal_id")) or signal
                 if not await save_signal(active):
