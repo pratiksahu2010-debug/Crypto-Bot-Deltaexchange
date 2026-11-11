@@ -551,6 +551,10 @@ class DeltaExchangeRest:
             except (TypeError, ValueError, OverflowError):
                 invalid_row_count += 1
                 continue
+        out_of_order_row_count = sum(
+            1 for index in range(1, len(normalized))
+            if normalized[index]["time"] < normalized[index - 1]["time"]
+        )
         dedup = {c["time"]: c for c in normalized}
         duplicate_row_count = len(normalized) - len(dedup)
         candles = [dedup[k] for k in sorted(dedup)][-limit:]
@@ -595,15 +599,16 @@ class DeltaExchangeRest:
             status = self._candle_feed_status.setdefault(pair, {}).setdefault(interval, {})
             status.update({
                 "duplicate_row_count": duplicate_row_count,
+                "out_of_order_row_count": out_of_order_row_count,
                 "missing_candle_count": gap_count,
                 "future_row_count": future_row_count,
                 "invalid_row_count": invalid_row_count,
             })
             if duplicate_row_count or gap_count or future_row_count or invalid_row_count:
                 logger.warning(
-                    "DELTA_CANDLE_DATA_QUALITY pair=%s interval=%s duplicates=%s gaps=%s future=%s invalid=%s",
-                    pair, interval, duplicate_row_count, gap_count,
-                    future_row_count, invalid_row_count,
+                    "DELTA_CANDLE_DATA_QUALITY pair=%s interval=%s duplicates=%s out_of_order=%s gaps=%s future=%s invalid=%s",
+                    pair, interval, duplicate_row_count, out_of_order_row_count,
+                    gap_count, future_row_count, invalid_row_count,
                 )
         self._candle_cache[cache_key] = (time.monotonic(), [dict(c) for c in candles])
         self._prune_candle_cache()
