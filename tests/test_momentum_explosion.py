@@ -43,7 +43,7 @@ def test_explosion_supports_both_directions(direction, rsi, macd, roc):
 def test_explosion_rejects_missing_or_weak_indicator_evidence():
     assert not evaluate(indicators(rvol=None))
     assert not evaluate(indicators(atr_expansion=0.99))
-    assert not evaluate(indicators(rsi=49.0, direction="LONG", rsi_accel=False))
+    assert not evaluate(indicators(rsi=49.0, direction="LONG", rsi_accel=False, macd_accel=False))
     assert not evaluate(indicators(macd_direction_ok=False, macd_accel=False,
                                    roc_direction_ok=True, rsi_accel=False))
     assert not evaluate(indicators(roc_direction_ok=False, macd_accel=False,
