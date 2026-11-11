@@ -14,7 +14,7 @@ from exchange.delta_rest import DeltaExchangeRest
 from exchange.symbol_manager import SymbolManager
 from exchange.candle_builder import CandleBuilder
 from exchange.delta_ws import DeltaFuturesStream
-from core.engine import SignalEngine
+from core.engine import SignalEngine, PRIMARY_CANDLE_HISTORY
 from tgbot.bot import TelegramBot
 from tgbot.delivery_worker import TelegramDeliveryWorker
 from database.db import init_db, dispose_db
@@ -112,8 +112,11 @@ def validate_runtime_config() -> None:
         raise ValueError("NORMAL_PULLBACK_TOUCH_ATR must be positive")
     if settings.max_signal_age_seconds <= 0:
         raise ValueError("MAX_SIGNAL_AGE_SECONDS must be positive")
-    if settings.max_candles_buffer < 50:
-        raise ValueError("MAX_CANDLES_BUFFER must be at least 50")
+    if settings.max_candles_buffer < PRIMARY_CANDLE_HISTORY:
+        raise ValueError(
+            f"MAX_CANDLES_BUFFER must be at least {PRIMARY_CANDLE_HISTORY} "
+            "to retain the full indicator warm-up history"
+        )
     if settings.normal_symbol_limit < 1 or settings.momentum_symbol_limit < 1:
         raise ValueError("Normal and Momentum symbol limits must be positive")
     if settings.normal_min_24h_turnover_usdt <= 0 or settings.momentum_min_24h_turnover_usdt <= 0:
