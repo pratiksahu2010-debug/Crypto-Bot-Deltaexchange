@@ -71,12 +71,19 @@ def _momentum_entry_gates(
     except (TypeError, ValueError, OverflowError):
         atr_number = extension = float("nan")
     atr_valid = bool(np.isfinite(atr_number) and atr_number > 0)
+    # Stage 3 entry handling: keep the original 1.0 ATR freshness limit
+    # for ordinary momentum states, but permit a controlled 1.5 ATR MEX
+    # extension. The downstream live-price entry-zone check can then queue a
+    # pullback/retest instead of discarding every moderately extended impulse.
+    mex_state = state in ("EXPLOSION", "SQUEEZE_RELEASE", "PRE_EXPLOSION_SIGNAL")
+    extension_limit = 1.5 if mex_state else 1.0
     return {
         "momentum_state": state in VALID_MOMENTUM_STATES,
         "atr_valid": atr_valid,
         "anti_chase": bool(
             bypass_anti_chase or (
-                atr_valid and np.isfinite(extension) and 0.0 <= extension <= 1.0
+                atr_valid and np.isfinite(extension)
+                and 0.0 <= extension <= extension_limit
             )
         ),
     }
