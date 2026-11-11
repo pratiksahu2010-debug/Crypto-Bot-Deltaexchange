@@ -77,7 +77,7 @@ def test_opening_range_uses_one_completed_five_minute_candle():
 
 
 def test_london_long_orb_uses_first_completed_five_minute_range():
-    result = evaluate(candles_for("london", "LONG"), 1.6, session="london", min_rvol=1.4, adx_value=25, plus_di=30, minus_di=15)
+    result = evaluate(candles_for("london", "LONG"), 1.6, 1.5, session="london", min_rvol=1.4, adx_value=25, plus_di=30, minus_di=15)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "LONG"
     assert result["range_end_local"].endswith("08:05:00+01:00")
@@ -87,7 +87,7 @@ def test_london_long_orb_uses_first_completed_five_minute_range():
 
 
 def test_new_york_short_orb_is_directionally_mirrored():
-    result = evaluate(candles_for("new_york", "SHORT"), 1.2, session="new_york", min_rvol=1.4, adx_value=25, plus_di=12, minus_di=28)
+    result = evaluate(candles_for("new_york", "SHORT"), 1.2, 1.5, session="new_york", min_rvol=1.4, adx_value=25, plus_di=12, minus_di=28)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "SHORT"
     assert result["range_end_local"].endswith("09:35:00-04:00")
@@ -111,24 +111,24 @@ def test_london_and_new_york_anchors_shift_with_dst():
 
 def test_session_trade_windows_match_specification():
     asia = candles_for("asia", "LONG")
-    asia_result = evaluate(asia, 0.8, session="asia", adx_value=25, plus_di=30, minus_di=15)
+    asia_result = evaluate(asia, 0.8, 1.5, session="asia", adx_value=25, plus_di=30, minus_di=15)
     assert asia_result["range_end_utc_ms"] - asia_result["session_start_utc_ms"] == 5 * 60_000
     assert asia_result["session_end_utc_ms"] - asia_result["session_start_utc_ms"] == 245 * 60_000
 
     london = candles_for("london", "LONG")
-    london_result = evaluate(london, 0.8, session="london", adx_value=25, plus_di=30, minus_di=15)
+    london_result = evaluate(london, 0.8, 1.5, session="london", adx_value=25, plus_di=30, minus_di=15)
     assert london_result["range_end_utc_ms"] - london_result["session_start_utc_ms"] == 5 * 60_000
     assert london_result["session_end_utc_ms"] - london_result["session_start_utc_ms"] == 245 * 60_000
 
     late = candles_for("late_us", "LONG")
-    late_result = evaluate(late, 0.8, session="late_us", adx_value=25, plus_di=30, minus_di=15)
+    late_result = evaluate(late, 0.8, 1.5, session="late_us", adx_value=25, plus_di=30, minus_di=15)
     assert late_result["range_end_utc_ms"] - late_result["session_start_utc_ms"] == 5 * 60_000
     assert late_result["session_end_utc_ms"] - late_result["session_start_utc_ms"] == 185 * 60_000
 
 
 def test_orb_score_uses_session_rvol_and_detector_extension_limit():
     score = ScoringEngine().score_orb({
-        "rvol": 0.2, "orb_session_rvol": 1.45,
+        "rvol": 0.2, "orb_session_rvol": 1.45, "orb_rolling_rvol": 1.5,
         "ema9": 102, "ema21": 101, "close": 102,
         "orb_vwap": 101, "rsi": 58, "macd_direction_ok": True,
         "roc_direction_ok": True, "atr": 1.0,
@@ -136,13 +136,13 @@ def test_orb_score_uses_session_rvol_and_detector_extension_limit():
     }, "LONG", min_rvol=1.4, max_extension_atr=0.8)
     components = {item.name: item for item in score.components}
     assert components["ORB Session RVOL"].points == 1.5
-    assert components["ORB Breakout Extension"].points == 1.0
+    assert components["ORB Breakout Extension"].points == 0.75
     assert components["ORB Session RVOL"].value == 1.45
 
 
 def test_orb_score_never_substitutes_general_rvol_for_session_rvol():
     score = ScoringEngine().score_orb({
-        "rvol": 5.0, "orb_session_rvol": None,
+        "rvol": 5.0, "orb_session_rvol": None, "orb_rolling_rvol": 5.0,
         "orb_breakout_extension_atr": 0.8,
     }, "LONG", min_rvol=1.4, max_extension_atr=0.8)
     components = {item.name: item for item in score.components}
@@ -152,7 +152,7 @@ def test_orb_score_never_substitutes_general_rvol_for_session_rvol():
 
 def test_orb_rejects_weak_adx_even_with_high_volume():
     result = evaluate(
-        candles_for("london", "SHORT"), 0.8, session="london",
+        candles_for("london", "SHORT"), 0.8, 1.5, session="london",
         min_rvol=1.4, adx_value=14.5, plus_di=10, minus_di=25,
     )
     assert result["state"] == "WEAK_TREND"
@@ -172,7 +172,7 @@ def test_orb_volume_baseline_excludes_pre_session_bars():
     # Overnight/pre-session volume must not contaminate the London baseline.
     data["volume"][:48] = 1000.0
     result = evaluate(
-        data, 0.8, session="london", min_rvol=1.4,
+        data, 0.8, 1.5, session="london", min_rvol=1.4,
         adx_value=25, plus_di=30, minus_di=15,
     )
     assert result["rvol_baseline"] == 100.0
