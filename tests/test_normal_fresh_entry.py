@@ -153,7 +153,7 @@ def test_normal_engine_uses_five_indicator_gates():
     gates = _normal_threshold_gates(indicators, "LONG", 20.0)
     assert set(gates) == {
         "ema_9_21", "vwap_direction", "rsi_direction",
-        "adx_min_25", "atr_valid",
+        "adx_min_25", "atr_valid", "confirm_15m",
     }
     assert all(gates.values())
     # The production hard floor is 25 even when a caller supplies 20.
@@ -200,7 +200,7 @@ def test_normal_adx_config_can_only_raise_the_required_floor():
     assert _normal_threshold_gates({**base, "adx": 25.0}, "LONG", 22.0)["adx_min_25"] is True
 
 
-def test_normal_adx_and_rvol_indicator_gates_are_independent_of_15m_context():
+def test_normal_adx_and_rvol_gates_do_not_override_required_15m_context():
     from core.engine import _normal_threshold_gates, _normal_relative_volume_gate
 
     indicators = {
@@ -208,7 +208,9 @@ def test_normal_adx_and_rvol_indicator_gates_are_independent_of_15m_context():
         "rsi": 56.0, "adx": 25.0, "atr": 0.5, "confirm_15m": False,
         "adx_rising": True, "plus_di": 30.0, "minus_di": 20.0, "rvol": 1.4,
     }
-    assert all(_normal_threshold_gates(indicators, "LONG", 22.0).values())
+    gates = _normal_threshold_gates(indicators, "LONG", 22.0)
+    assert gates["confirm_15m"] is False
+    assert all(value for key, value in gates.items() if key != "confirm_15m")
     assert _normal_relative_volume_gate(indicators, "LONG", 1.2) == {
         "relative_volume": True,
     }
@@ -228,3 +230,26 @@ def test_normal_engine_enforces_adx_floor_of_25_even_if_configured_lower():
     }
     assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_25"] is False
     assert _normal_threshold_gates({**indicators, "adx": 25.0}, "LONG", 20.0)["adx_min_25"] is True
+
+
+def test_15m_context_uses_only_complete_three_bar_groups():
+    from core.engine import _closed_15m_context_from_5m
+
+    n = 300
+    times = DAY0 + np.arange(n, dtype=np.int64) * FIVE_MIN
+    close = 100.0 + np.arange(n, dtype=float) * 0.05
+    opens = np.concatenate(([close[0]], close[:-1]))
+    arr = {
+        "time": times, "open": opens, "high": np.maximum(opens, close) + 0.05,
+        "low": np.minimum(opens, close) - 0.05, "close": close,
+        "volume": np.full(n, 100.0),
+    }
+    context = _closed_15m_context_from_5m(arr)
+    assert context["available"] is True
+    assert context["bias"] == "BULLISH"
+    assert context["bars"] >= 25
+
+    # Removing one constituent bar makes that 15m bucket ineligible.
+    broken = {key: np.delete(value, 0) for key, value in arr.items()}
+    broken_context = _closed_15m_context_from_5m(broken)
+    assert broken_context["bars"] < context["bars"]
