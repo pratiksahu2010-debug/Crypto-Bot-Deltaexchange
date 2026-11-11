@@ -493,7 +493,7 @@ class SignalEngine:
                 await release_signal_claim(signal, candle_ts)
             except Exception as exc:
                 logger.error(f"SIGNAL_CLAIM_RELEASE_FAILED {pair}: {exc}")
-            self.signals[engine].invalidate(pair, engine, direction)
+            self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
 
         if self.telegram:
             try:
@@ -1582,7 +1582,7 @@ class SignalEngine:
                     logger.error(f"Persistent signal deduplication unavailable: {exc}")
                     claimed = False
                 if not claimed:
-                    self.signals[engine].invalidate(pair, engine, direction)
+                    self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
                     logger.warning(f"Signal suppressed: persistent duplicate/claim unavailable for {pair} {engine} {direction}")
                     return
                 logger.info(
@@ -1615,7 +1615,7 @@ class SignalEngine:
                             )
                         except Exception as exc:
                             logger.error(f"SIGNAL_CLAIM_RELEASE_FAILED {pair}: {exc}")
-                        self.signals[engine].invalidate(pair, engine, direction)
+                        self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
                         logger.info(
                             f"DELIVERY_STALE_SKIP {pair} engine={engine} price={delivery_price} "
                             f"entry_zone={zone_low}-{zone_high} age_seconds={delivery_age:.1f}"
@@ -1649,7 +1649,7 @@ class SignalEngine:
                         await release_signal_claim(signal, candle_ts)
                     except Exception as exc:
                         logger.error("SIGNAL_CLAIM_RELEASE_FAILED %s: %s", pair, exc)
-                    self.signals[engine].invalidate(pair, engine, direction)
+                    self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
                     logger.warning(
                         "SIGNAL_NOT_QUEUED %s engine=%s direction=%s; claim released",
                         pair, engine, direction,
@@ -1874,12 +1874,12 @@ class SignalEngine:
             if queued:
                 self.cooldowns[engine].set(pair, engine, direction)
                 from database.repositories import save_signal
-                active = self.signals[engine].get(pair, engine, direction) or signal
+                active = self.signals[engine].get(pair, engine, direction, signal.get("signal_id")) or signal
                 if not await save_signal(active):
                     logger.error(f"RETEST_ACTIVE_SIGNAL_PERSIST_FAILED {key}")
                 logger.info(f"RETEST_SIGNAL_QUEUED {key} price={delivery_price}")
             else:
-                self.signals[engine].invalidate(pair, engine, direction)
+                self.signals[engine].invalidate(pair, engine, direction, signal.get("signal_id"))
                 self.telegram_delivery_failures += 1
                 try:
                     from database.repositories import release_signal_claim
