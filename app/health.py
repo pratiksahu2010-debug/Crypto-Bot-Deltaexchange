@@ -172,7 +172,7 @@ def _websocket_diagnostics(request: Request) -> dict:
         "status": websocket.status,
         "reconnects": websocket.reconnect_count,
         "symbol_feed_age_seconds": websocket.symbol_feed_age_seconds,
-        "candle_event_quality": websocket.candle_event_quality,
+        "candle_event_quality": getattr(websocket, "candle_event_quality", {}),
     }
 
 
