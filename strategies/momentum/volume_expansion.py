@@ -5,15 +5,16 @@ import math
 def evaluate(indicators):
     try:
         rvol = float(indicators.get("rvol"))
+        expansion = float(indicators.get("atr_expansion"))
         adx = float(indicators.get("adx"))
         rsi = float(indicators.get("rsi"))
         plus_di = float(indicators.get("plus_di"))
         minus_di = float(indicators.get("minus_di"))
     except (TypeError, ValueError, OverflowError):
         return False
-    if not all(math.isfinite(x) for x in (rvol, adx, rsi, plus_di, minus_di)):
+    if not all(math.isfinite(x) for x in (rvol, expansion, adx, rsi, plus_di, minus_di)):
         return False
-    if rvol < 1.50 or adx < 20.0:
+    if rvol < 1.50 or expansion < 1.08 or adx < 20.0:
         return False
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
