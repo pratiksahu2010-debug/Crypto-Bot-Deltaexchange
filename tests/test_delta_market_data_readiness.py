@@ -257,14 +257,15 @@ async def test_health_is_ready_with_fresh_primary_candles_without_15m_context(mo
         start_time=now,
     )))
     response = await health(request)
-    assert response["ok"] is True
-    # Two unique symbols are monitored once each on the primary 5m timeframe.
-    assert response["market_data_freshness"]["expected"] == 2
-    assert response["market_data_freshness"]["fresh"] == 2
-    assert response["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["status"] == "fresh"
-    assert "15m" not in response["market_data_freshness"]["feeds"]["B-ETH_USDT"]
-    # WebSocket loss is diagnostic only because REST closed-candle data is authoritative.
-    assert response["websocket"]["status"] == "reconnecting"
+    assert response.status_code == 503
+    body = json.loads(response.body)
+    # REST history can remain fresh while the required live subscription is down.
+    assert body["market_data_freshness"]["expected"] == 2
+    assert body["market_data_freshness"]["fresh"] == 2
+    assert body["market_data_freshness"]["feeds"]["B-BTC_USDT"]["5m"]["status"] == "fresh"
+    assert "15m" not in body["market_data_freshness"]["feeds"]["B-ETH_USDT"]
+    assert body["websocket"]["status"] == "reconnecting"
+    assert "websocket_subscription_not_ready" in body["reasons"]
 
 
 @pytest.mark.asyncio
