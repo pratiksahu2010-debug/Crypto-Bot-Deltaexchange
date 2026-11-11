@@ -1112,6 +1112,10 @@ class SignalEngine:
                     session_names = []
                     if settings.orb_asia_enabled:
                         session_names.append("asia")
+                    if settings.orb_sydney_enabled:
+                        session_names.append("sydney")
+                    if settings.orb_cme_enabled:
+                        session_names.append("cme")
                     if settings.orb_london_enabled:
                         session_names.append("london")
                     if settings.orb_new_york_enabled:
