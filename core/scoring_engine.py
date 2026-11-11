@@ -258,13 +258,24 @@ class ScoringEngine:
             "VWAP supports direction" if vwap_ok else "VWAP not aligned")
 
         rsi_value = values.get("rsi")
-        rsi_ok = rsi_value is not None and (rsi_value >= 52 if is_long else rsi_value <= 48)
+        rsi_ok = rsi_value is not None and (rsi_value >= 55 if is_long else rsi_value <= 45)
         add("ORB RSI", 1.25 if rsi_ok else 0.0, 1.25, rsi_value,
-            "RSI confirms direction" if rsi_ok else "RSI not aligned")
+            "RSI meets ORB directional threshold" if rsi_ok else "RSI below ORB directional threshold")
 
-        macd_ok = bool(values.get("macd_direction_ok") or values.get("macd_accel"))
-        add("ORB MACD", 1.5 if macd_ok else 0.0, 1.5, macd_ok,
-            "MACD confirms direction" if macd_ok else "MACD not aligned")
+        macd_hist = values.get("macd_hist")
+        atr_for_macd = values.get("atr")
+        try:
+            macd_floor = max(float(atr_for_macd) * 0.01, 1e-12)
+            macd_ok = (
+                macd_hist is not None and math.isfinite(float(macd_hist))
+                and abs(float(macd_hist)) >= macd_floor
+                and (float(macd_hist) > 0 if is_long else float(macd_hist) < 0)
+            )
+        except (TypeError, ValueError, OverflowError):
+            macd_ok = False
+        add("ORB MACD", 1.5 if macd_ok else 0.0, 1.5, macd_hist,
+            "MACD histogram has meaningful directional magnitude" if macd_ok
+            else "MACD histogram is weak or not directionally aligned")
 
         roc_ok = bool(values.get("roc_direction_ok"))
         add("ORB ROC", 1.25 if roc_ok else 0.0, 1.25, values.get("roc"),
