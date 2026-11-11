@@ -63,7 +63,7 @@ def _score_disposition(score: float, signal_threshold: float) -> str:
 def _momentum_entry_gates(
     state: str, atr_value: Any, ema_extension_atr: Any,
 ) -> Dict[str, bool]:
-    """Apply only shared validity and anti-chase checks after each detector qualifies."""
+    """Apply shared validity and a strict 1-ATR anti-chase ceiling after qualification."""
     try:
         atr_number = float(atr_value)
         extension = float(ema_extension_atr)
@@ -73,7 +73,7 @@ def _momentum_entry_gates(
         "momentum_state": state in VALID_MOMENTUM_STATES,
         "anti_chase": bool(
             np.isfinite(atr_number) and atr_number > 0
-            and np.isfinite(extension) and 0.0 <= extension <= 2.0
+            and np.isfinite(extension) and 0.0 <= extension <= 1.0
         ),
     }
 
