@@ -217,12 +217,12 @@ def evaluate(
         volume_values = volumes
         session_start_ms = int(start.astimezone(timezone.utc).timestamp() * 1000)
         session_idx = int(np.searchsorted(stamps, session_start_ms, side="left"))
-        # Each session gets its own VWAP anchor and volume baseline. RVOL is
-        # current completed-bar volume divided by prior bars since this anchor.
-        prior_session_volumes = volume_values[max(0, session_idx - 20):-1]
-        # The opening-range candle is the first session baseline. Allow the
-        # first completed candle after it to qualify; do not silently delay
-        # a 5-minute ORB by waiting for several additional bars.
+        # Each session gets its own volume baseline. Never include pre-session
+        # bars: the opening candle is the initial baseline, then the baseline
+        # expands to the mean of all completed bars since this session opened.
+        # This supports a one-candle OR without borrowing unrelated overnight
+        # liquidity from another session.
+        prior_session_volumes = volume_values[session_idx:-1]
         if len(prior_session_volumes) < 1:
             return _result(
                 "SESSION_VOLUME_BASELINE_BUILDING", meta,
