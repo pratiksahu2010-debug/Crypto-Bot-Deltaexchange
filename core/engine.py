@@ -1126,6 +1126,10 @@ class SignalEngine:
         # Update active signal outcomes on every fresh closed candle before deciding
         # whether this engine has already evaluated the candle.
         await self._update_signal_outcomes(pair, engine, float(high[-1]), float(low[-1]), candle_ts)
+        await self._update_strategy_candidate_outcomes(
+            pair, engine, float(high[-1]), float(low[-1]), float(close[-1]),
+            candle_ts, interval_ms,
+        )
         await self._check_pending_retest(pair, engine)
         if self._last_processed.setdefault(engine, {}).get(pair) == candle_ts:
             return
@@ -1542,6 +1546,12 @@ class SignalEngine:
                     confirm_candle_time_ms, indicators, "WATCHLIST",
                     failed=[waiting_reason], strategy=momentum_state,
                 )
+                await self._record_strategy_candidate(
+                    pair, engine, direction, momentum_state, candle_ts,
+                    float(close[-1]), float(atr_v or 0), "WATCHLIST",
+                    "EARLY_CANDIDATE" if early_candidate else "AWAITING_IGNITION",
+                    indicators, failed=[waiting_reason],
+                )
                 self._last_processed.setdefault(engine, {})[pair] = candle_ts
                 self.watchlists[engine].add({
                     "pair": pair, "display": self.symbols.display_name(pair),
@@ -1577,6 +1587,11 @@ class SignalEngine:
             )
             failed = [name for name, passed in momentum_gates.items() if not passed]
             if failed:
+                await self._record_strategy_candidate(
+                    pair, engine, direction, momentum_state, candle_ts,
+                    float(close[-1]), float(atr_v or 0), "REJECT",
+                    "GATE_REJECTED", indicators, failed=failed,
+                )
                 self._log_candle_evaluation(
                     pair, engine, direction, candle_ts, candle_close_ms,
                     confirm_candle_time_ms, indicators, "REJECT", failed=failed,
@@ -1612,6 +1627,13 @@ class SignalEngine:
         # Normal score is diagnostic after its explicit indicator gates.
         # SIGNAL_THRESHOLD belongs to Momentum, not the Normal engine.
         if engine == "momentum" and not orb_qualified and result.total < 5.5:
+            await self._record_strategy_candidate(
+                pair, engine, direction, strategy, candle_ts,
+                float(close[-1]), float(atr_v or 0), "REJECT",
+                "SCORE_REJECTED", indicators,
+                failed=[f"score_below_watchlist_min_5_5({result.total:.2f})"],
+                score=result.total,
+            )
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
@@ -1621,6 +1643,12 @@ class SignalEngine:
             return
 
         if self.cooldowns[engine].is_cooling(pair, engine, direction, strategy):
+            await self._record_strategy_candidate(
+                pair, engine, direction, strategy, candle_ts,
+                float(close[-1]), float(atr_v or 0), "REJECT",
+                "COOLDOWN_REJECTED", indicators, failed=["cooldown"],
+                score=result.total,
+            )
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "REJECT",
@@ -1697,6 +1725,11 @@ class SignalEngine:
                 f"candle_age_seconds={detected_age:.1f} "
                 f"pair_processing_ms={detection_elapsed_ms:.1f} "
                 f"indicator_and_strategy_ms={(asyncio.get_running_loop().time() - indicator_started) * 1000.0:.1f}"
+            )
+            await self._record_strategy_candidate(
+                pair, engine, direction, strategy, candle_ts,
+                float(close[-1]), float(atr_v or 0), "CANDIDATE",
+                "ENTRY_QUALIFIED", indicators, score=result.total,
             )
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
@@ -1862,6 +1895,12 @@ class SignalEngine:
                         pair, engine, direction,
                     )
         elif disposition == "WATCHLIST":
+            await self._record_strategy_candidate(
+                pair, engine, direction, strategy, candle_ts,
+                float(close[-1]), float(atr_v or 0), "WATCHLIST",
+                "SCORE_WATCHLIST", indicators, score=result.total,
+                failed=[f"signal_threshold({settings.signal_threshold:g})"],
+            )
             self._log_candle_evaluation(
                 pair, engine, direction, candle_ts, candle_close_ms,
                 confirm_candle_time_ms, indicators, "WATCHLIST",
@@ -2097,6 +2136,60 @@ class SignalEngine:
                 logger.warning(f"RETEST_SIGNAL_NOT_QUEUED {key}; candidate remains retryable")
                 continue
             await remove("queued")
+
+    async def _record_strategy_candidate(
+        self, pair: str, engine: str, direction: str, strategy: str,
+        candle_ts: int, entry_price: float, atr_value: float,
+        decision: str, stage: str, indicators: Dict[str, Any],
+        failed: Optional[List[str]] = None, score: Optional[float] = None,
+    ) -> None:
+        """Persist ORB/MEX evaluation metadata without affecting signal decisions."""
+        if engine != "momentum":
+            return
+        strategy_name = str(strategy or "")
+        if strategy_name.startswith("ORB_"):
+            family = "ORB"
+        elif strategy_name in (
+            "PRE_EXPLOSION", "EXPLOSION", "SQUEEZE_RELEASE",
+            "PRE_EXPLOSION_SIGNAL",
+        ):
+            family = "MEX"
+        else:
+            return
+        try:
+            from database.repositories import save_strategy_candidate
+            safe_indicators = {}
+            for key, value in (indicators or {}).items():
+                if isinstance(value, (bool, int, float, str)) or value is None:
+                    safe_indicators[key] = value
+            await save_strategy_candidate({
+                "pair": pair, "engine": engine, "strategy_family": family,
+                "strategy": strategy_name, "direction": direction,
+                "candidate_ts": int(candle_ts), "entry_price": float(entry_price),
+                "atr_value": float(atr_value), "decision": decision, "stage": stage,
+                "payload": {
+                    "score": score, "failed_reasons": list(failed or []),
+                    "indicators": safe_indicators,
+                    "last_observed_candle_ts": int(candle_ts),
+                },
+            })
+        except Exception as exc:
+            logger.warning("STRATEGY_CANDIDATE_SAVE_FAILED pair=%s strategy=%s error=%s", pair, strategy_name, exc)
+
+    async def _update_strategy_candidate_outcomes(
+        self, pair: str, engine: str, high: float, low: float, close: float,
+        candle_ts: int, interval_ms: int,
+    ) -> None:
+        """Update candidate excursions from completed bars only; analytics is non-blocking."""
+        if engine != "momentum":
+            return
+        try:
+            from database.repositories import update_strategy_candidate_outcomes
+            await update_strategy_candidate_outcomes(
+                pair, int(candle_ts), high, low, close, interval_ms,
+            )
+        except Exception as exc:
+            logger.warning("STRATEGY_CANDIDATE_UPDATE_FAILED pair=%s error=%s", pair, exc)
 
     def _log_candle_evaluation(
         self, pair: str, engine: str, direction: str, candle_ts: int,
