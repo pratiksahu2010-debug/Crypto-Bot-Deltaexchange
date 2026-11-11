@@ -424,7 +424,7 @@ class SignalEngine:
         active = self.signals[engine].get(pair, engine, direction, strategy=strategy)
         if active and active.get("status") == "active" and not active.get("tp1_hit"):
             return
-        if not live.first_attempt(pair, direction, candle_ms):
+        if not live.first_attempt(pair, direction, candle_ms, strategy):
             return
         score = res["score_result"]
         self.live_stats["candidates"] += 1
@@ -443,7 +443,7 @@ class SignalEngine:
             self.live_stats["capped"] += 1
             logger.info(f"LIVE_IGNITION_RATE_CAPPED {summary}")
             return
-        key = (pair, direction)
+        key = (pair, direction, strategy)
         if key in self._live_inflight:
             return
         try:
