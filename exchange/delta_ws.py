@@ -38,6 +38,7 @@ class DeltaFuturesStream:
         # Exchange event timestamps prevent late/out-of-order updates from
         # overwriting a newer update to the same forming candle.
         self._last_candle_event_ms = {}
+        self._candle_event_quality = {}
         self.on_candle_callback = None
 
     def set_candle_callback(self, callback):
@@ -68,6 +69,17 @@ class DeltaFuturesStream:
     def reconnect_delay(attempt: int) -> float:
         """Exponential reconnect backoff, capped to keep recovery bounded."""
         return float(min(30, 2 ** max(0, min(int(attempt) - 1, 5))))
+
+    @property
+    def candle_event_quality(self):
+        return {
+            pair: dict(counts)
+            for pair, counts in self._candle_event_quality.items()
+        }
+
+    def _record_candle_quality(self, pair: str, reason: str) -> None:
+        counts = self._candle_event_quality.setdefault(pair, {})
+        counts[reason] = int(counts.get(reason, 0)) + 1
 
     @property
     def price_feed_age_seconds(self):
@@ -318,13 +330,18 @@ class DeltaFuturesStream:
             event_key = (pair, interval)
             previous_event_ms = self._last_candle_event_ms.get(event_key)
             if previous_event_ms is not None and stamp <= previous_event_ms:
+                self._record_candle_quality(
+                    pair, "duplicate" if stamp == previous_event_ms else "out_of_order"
+                )
+                return
+            if stamp > now_ms + 15_000 or candle_open_ms > now_ms + 6_000:
+                self._record_candle_quality(pair, "future_timestamp")
                 return
             if (
-                stamp > now_ms + 15_000
-                or candle_open_ms > now_ms + 6_000
-                or candle_open_ms + interval_ms <= now_ms
+                candle_open_ms + interval_ms <= now_ms
                 or now_ms - candle_open_ms > interval_ms + 30_000
             ):
+                self._record_candle_quality(pair, "stale_or_closed_candle")
                 return
             candle = {
                 "time": candle_open_ms,
@@ -341,12 +358,14 @@ class DeltaFuturesStream:
                 or candle["high"] < max(candle["open"], candle["close"], candle["low"])
                 or candle["low"] > min(candle["open"], candle["close"], candle["high"])
             ):
+                self._record_candle_quality(pair, "invalid_ohlcv")
                 return
             get_buffer = getattr(self.candles, "get_buffer", None)
             if callable(get_buffer):
                 buffer = get_buffer(pair, interval)
                 buffered = getattr(buffer, "candles", None)
                 if buffered and candle_open_ms < int(buffered[-1].get("time", 0)):
+                    self._record_candle_quality(pair, "out_of_order_candle")
                     return
             self.candles.on_candle(pair, interval, candle)
             self._last_candle_event_ms[event_key] = stamp
