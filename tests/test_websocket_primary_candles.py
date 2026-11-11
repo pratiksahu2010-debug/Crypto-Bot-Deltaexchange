@@ -8,7 +8,9 @@ def _candle(ts, close):
     }
 
 
-def test_completed_arrays_excludes_forming_websocket_candle():
+def test_completed_arrays_excludes_forming_websocket_candle(monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "candle_close_grace_seconds", 3)
     builder = CandleBuilder()
     builder.seed("B-BTC_USDT", "5m", [
         _candle(0, 100), _candle(300_000, 101), _candle(600_000, 102),
@@ -33,7 +35,9 @@ def test_rest_seed_preserves_newer_websocket_forming_candle():
     assert arrays["close"][-1] == 103.0
 
 
-def test_completed_arrays_waits_for_exchange_close_grace():
+def test_completed_arrays_waits_for_exchange_close_grace(monkeypatch):
+    from config import settings
+    monkeypatch.setattr(settings, "candle_close_grace_seconds", 3)
     builder = CandleBuilder()
     builder.seed("B-BTC_USDT", "5m", [_candle(300_000, 101)])
 
