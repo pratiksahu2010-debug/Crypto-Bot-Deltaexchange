@@ -108,3 +108,32 @@ def test_websocket_ignores_older_event_for_same_forming_candle(monkeypatch):
     assert stream.candle_event_quality["B-BTC_USDT"] == {
         "out_of_order": 1, "duplicate": 1,
     }
+
+
+
+def test_websocket_requires_ack_for_every_subscribed_symbol():
+    from exchange.delta_ws import DeltaFuturesStream
+
+    stream = DeltaFuturesStream(object(), object())
+    stream._channels = {"candlestick_5m": ["BTCUSD", "ETHUSD"]}
+
+    stream._handle_message({
+        "type": "subscriptions",
+        "channels": [{
+            "name": "candlestick_5m",
+            "symbols": ["BTCUSD"],
+        }],
+    })
+    assert not stream.connected
+    assert "ETHUSD" in stream._subscription_error
+
+    stream._subscription_error = None
+    stream._handle_message({
+        "type": "subscriptions",
+        "channels": [{
+            "name": "candlestick_5m",
+            "symbols": ["BTCUSD", "ETHUSD"],
+        }],
+    })
+    assert stream.connected
+    assert stream._subscribed_channels == {"candlestick_5m"}
