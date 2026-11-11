@@ -52,7 +52,9 @@ class SignalManager:
         except (TypeError, ValueError, OverflowError):
             return False
         active = [
-            old for old in self._matching(signal["pair"], signal["engine"], signal["direction"])
+            old for old in self._matching(
+                signal["pair"], signal["engine"], signal["direction"], signal.get("strategy")
+            )
             if old.get("status") == "active"
         ]
         for old in active:
