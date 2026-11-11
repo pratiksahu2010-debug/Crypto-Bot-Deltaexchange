@@ -35,6 +35,9 @@ class DeltaFuturesStream:
         self._subscribed_channels = set()
         # Last accepted forming-candle update per canonical symbol and timeframe.
         self._last_symbol_update_ms = {}
+        # Exchange event timestamps prevent late/out-of-order updates from
+        # overwriting a newer update to the same forming candle.
+        self._last_candle_event_ms = {}
         self.on_candle_callback = None
 
     def set_candle_callback(self, callback):
@@ -312,8 +315,13 @@ class DeltaFuturesStream:
             # the candle update time, so floor it to the resolution boundary.
             candle_open_ms = stamp // interval_ms * interval_ms
             now_ms = int(time.time() * 1000)
+            event_key = (pair, interval)
+            previous_event_ms = self._last_candle_event_ms.get(event_key)
+            if previous_event_ms is not None and stamp <= previous_event_ms:
+                return
             if (
-                candle_open_ms > now_ms + 6_000
+                stamp > now_ms + 15_000
+                or candle_open_ms > now_ms + 6_000
                 or candle_open_ms + interval_ms <= now_ms
                 or now_ms - candle_open_ms > interval_ms + 30_000
             ):
@@ -341,6 +349,7 @@ class DeltaFuturesStream:
                 if buffered and candle_open_ms < int(buffered[-1].get("time", 0)):
                     return
             self.candles.on_candle(pair, interval, candle)
+            self._last_candle_event_ms[event_key] = stamp
             self._last_symbol_update_ms.setdefault(pair, {})[interval] = now_ms
             # A successful market update resets the consecutive reconnect backoff.
             self._reconnect_attempts = 0
