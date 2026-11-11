@@ -586,3 +586,32 @@ async def test_health_increases_candle_age_since_last_rest_observation(monkeypat
     result = _market_data_freshness(request)
     assert result["ready"] is False
     assert result["feeds"]["B-BTC_USDT"]["5m"]["candle_age_seconds"] >= 65.0
+
+
+
+def test_health_requires_explicit_completed_history_confirmation(monkeypatch):
+    from app.health import _market_data_freshness
+    from config import settings
+
+    monkeypatch.setattr(settings, "enable_normal_engine", True)
+    monkeypatch.setattr(settings, "enable_momentum_engine", False)
+    monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 60)
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
+    def run(feed_status):
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+            rest=SimpleNamespace(get_candle_feed_status=lambda: {"B-BTC_USDT": {"5m": feed_status}}),
+            symbol_mgr=SimpleNamespace(normal_symbols=["B-BTC_USDT"], momentum_symbols=[]),
+        )))
+        return _market_data_freshness(request)
+
+    base = {
+        "status": "fresh",
+        "observed_at_ms": now_ms,
+        "candle_age_seconds": 10.0,
+        "candle_count": 300,
+        "last_completed_close_ms": now_ms - 10_000,
+    }
+    assert run(dict(base))["ready"] is False
+    assert run({**base, "history_ready": True, "completed_history_count": 299})["ready"] is False
+    assert run({**base, "history_ready": True, "completed_history_count": 300})["ready"] is True
