@@ -42,13 +42,13 @@ VALID_MOMENTUM_STATES = frozenset({
 })
 
 
-def _normal_adx_floor(configured: Any = 20.0) -> float:
-    """Enforce the specified Normal ADX minimum of 20; allow stricter overrides."""
+def _normal_adx_floor(configured: Any = 25.0) -> float:
+    """Enforce the specified Normal ADX minimum of 25; allow stricter overrides."""
     try:
         value = float(configured)
     except (TypeError, ValueError, OverflowError):
-        value = 20.0
-    return max(20.0, value) if np.isfinite(value) else 20.0
+        value = 25.0
+    return max(25.0, value) if np.isfinite(value) else 25.0
 
 
 def _score_disposition(score: float, signal_threshold: float) -> str:
@@ -62,8 +62,9 @@ def _score_disposition(score: float, signal_threshold: float) -> str:
 
 def _momentum_entry_gates(
     state: str, atr_value: Any, ema_extension_atr: Any,
+    bypass_anti_chase: bool = False,
 ) -> Dict[str, bool]:
-    """Apply shared validity and a strict 1-ATR anti-chase ceiling after qualification."""
+    """Apply shared ATR validity; detector-specific ORB extension is not re-vetoed."""
     try:
         atr_number = float(atr_value)
         extension = float(ema_extension_atr)
@@ -72,21 +73,23 @@ def _momentum_entry_gates(
     return {
         "momentum_state": state in VALID_MOMENTUM_STATES,
         "anti_chase": bool(
-            np.isfinite(atr_number) and atr_number > 0
-            and np.isfinite(extension) and 0.0 <= extension <= 1.0
+            bypass_anti_chase or (
+                np.isfinite(atr_number) and atr_number > 0
+                and np.isfinite(extension) and 0.0 <= extension <= 1.0
+            )
         ),
     }
 
 
 def _normal_threshold_gates(
-    indicators: Dict[str, Any], direction: str, adx_min: float = 20.0,
+    indicators: Dict[str, Any], direction: str, adx_min: float = 25.0,
     strategy: Optional[str] = None,
 ) -> Dict[str, bool]:
     """Core Normal indicator gates; participation and trend strength are checked separately."""
     if direction not in ("LONG", "SHORT") or not isinstance(indicators, dict):
         return {
             "ema_9_21": False, "vwap_direction": False, "rsi_direction": False,
-            "adx_min_20": False, "atr_valid": False, "confirm_15m": False,
+            "adx_min_25": False, "atr_valid": False,
         }
 
     def number(key):
@@ -113,11 +116,8 @@ def _normal_threshold_gates(
             rsi_value is not None
             and (rsi_value > 50.0 if is_long else rsi_value < 50.0)
         ),
-        "adx_min_20": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
+        "adx_min_25": bool(adx_value is not None and adx_value >= _normal_adx_floor(adx_min)),
         "atr_valid": bool(atr_value is not None and atr_value > 0),
-        "confirm_15m": bool(
-            indicators.get("confirm_15m") is True
-        ),
     }
 
 
@@ -1448,6 +1448,7 @@ class SignalEngine:
             # that would narrow valid detector states and delay early breakouts.
             momentum_gates = _momentum_entry_gates(
                 momentum_state, atr_v, extension,
+                bypass_anti_chase=momentum_state in ("ORB_PREBREAKOUT", "ORB_BREAKOUT", "ORB_RETEST"),
             )
             failed = [name for name, passed in momentum_gates.items() if not passed]
             if failed:
