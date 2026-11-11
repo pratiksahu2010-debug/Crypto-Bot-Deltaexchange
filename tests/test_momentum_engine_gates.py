@@ -23,6 +23,7 @@ def test_qualified_momentum_and_orb_states_need_only_shared_anti_chase_gate(stat
     # This shared layer must not impose a second universal MACD, ADX/DI or RVOL veto.
     assert _momentum_entry_gates(state, 0.5, 1.0) == {
         "momentum_state": True,
+        "atr_valid": True,
         "anti_chase": True,
     }
 
