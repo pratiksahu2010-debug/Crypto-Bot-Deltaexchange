@@ -27,7 +27,7 @@ Required indicator conditions:
 
 Relative volume is optional and disabled by default. Set NORMAL_RVOL_GATE_ENABLED=true to enable NORMAL_RVOL_MIN. Normal scoring is diagnostic after the required indicator gates; SIGNAL_THRESHOLD is not a second Normal rejection gate.
 
-Normal does not require a 15-minute context, rising ADX, ADX of 30, second-candle follow-through, candle colour, body/wick shape, or order-book confirmation. Normal signals are checked again for freshness and entry-zone validity immediately before Telegram queuing.
+Normal does not require 15-minute confirmation (15m context is diagnostic only), rising ADX, ADX of 30, second-candle follow-through, candle colour, body/wick shape, or order-book confirmation. Normal signals are checked again for freshness and entry-zone validity immediately before Telegram queuing.
 
 ### Momentum Explosion
 
@@ -40,7 +40,7 @@ Normal does not require a 15-minute context, rising ADX, ADX of 30, second-candl
 ### Opening Range Breakout (ORB)
 
 - Crypto ORB runs 24/7 at four documented session opens: Asia/Daily UTC 00:00, London 08:00 Europe/London, New York 09:30 America/New_York, and optional Late US 16:00 America/New_York.
-- Each session builds its own 30-minute opening range from exactly six completed 5-minute candles. OR High/Low are the highest high and lowest low across those six candles.
+- Each session builds its opening range from exactly one completed 5-minute candle. OR High/Low are that candle’s high and low.
 - London and New York use IANA time zones, so summer/winter DST shifts are automatic. Asia remains fixed at 00:00 UTC.
 - Asia trades until 04:30 UTC; London and New York trade for four hours after their range closes; optional Late US trades for three hours after its range closes.
 - Every session has an independent opening-range calculation, session-anchored VWAP, and RVOL baseline calculated only from volume since that session's open. Overlapping London/New York windows remain independent.
