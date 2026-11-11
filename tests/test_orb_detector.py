@@ -209,8 +209,20 @@ def test_orb_rising_adx_can_qualify_in_early_strength_band():
         min_rvol=1.4, adx_value=15.5, plus_di=30, minus_di=15,
         adx_rising=True, adx_min=20,
     )
+    # Exactly-at-cap extensions must not become extended due to float noise.
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["adx_rising"] is True
+
+
+def test_orb_extended_but_valid_breakout_waits_for_pullback():
+    result = evaluate(
+        candles_for("london", "LONG"), 1.0, 1.5, session="london",
+        min_rvol=1.4, max_extension_atr=0.80, max_pullback_extension_atr=1.50,
+        adx_value=25, plus_di=30, minus_di=15,
+    )
+    assert result["state"] == "ORB_PULLBACK_PENDING", result
+    assert result["pullback_required"] is True
+    assert result["pullback_extension_limit_atr"] == 1.5
 
 
 def test_orb_retest_path_is_optional_and_directional():
