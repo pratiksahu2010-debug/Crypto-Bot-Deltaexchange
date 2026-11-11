@@ -991,7 +991,7 @@ class SignalEngine:
         primary = settings.candle_primary_tf
         app_state = getattr(getattr(self, "_app", None), "state", None)
         websocket = getattr(app_state, "websocket", None)
-        if settings.enable_websocket and websocket is not None and not websocket.connected:
+        if settings.enable_websocket and (websocket is None or not websocket.connected):
             logger.info(
                 "MARKET_DATA_SKIP pair=%s engine=%s reason=websocket_not_connected",
                 pair, engine,
