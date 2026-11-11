@@ -794,3 +794,214 @@ async def expire_signal_delivery(delivery_key: str, attempts: int) -> bool:
             await session.rollback()
             logger.error("Telegram outbox expiry update failed: %s", exc)
             return False
+
+
+async def save_strategy_candidate(candidate: dict) -> bool:
+    """Insert one ORB/MEX candidate once; never changes signal eligibility."""
+    import json
+    import math
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from database import db as database_db
+    from database.models import StrategyCandidateRecord
+
+    factory = database_db.SessionLocal
+    if factory is None:
+        return False
+    try:
+        pair = str(candidate.get("pair") or "").strip()
+        engine = str(candidate.get("engine") or "").strip()
+        family = str(candidate.get("strategy_family") or "").upper()
+        strategy = str(candidate.get("strategy") or "").strip()
+        direction = str(candidate.get("direction") or "").upper()
+        candle_ts = int(candidate.get("candidate_ts") or 0)
+        entry = float(candidate.get("entry_price") or 0)
+        atr_value = float(candidate.get("atr_value") or 0)
+        if (
+            not pair or engine != "momentum" or family not in ("ORB", "MEX")
+            or not strategy or direction not in ("LONG", "SHORT")
+            or candle_ts <= 0 or not math.isfinite(entry) or entry <= 0
+            or not math.isfinite(atr_value) or atr_value < 0
+        ):
+            return False
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    key = f"{pair}:{family}:{strategy}:{direction}:{candle_ts}"
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    payload = dict(candidate.get("payload") or {})
+    payload.setdefault("last_observed_candle_ts", candle_ts)
+    async with factory() as session:
+        try:
+            existing = await session.get(StrategyCandidateRecord, key)
+            if existing is not None:
+                return True
+            session.add(StrategyCandidateRecord(
+                candidate_key=key, pair=pair, engine=engine,
+                strategy_family=family, strategy=strategy, direction=direction,
+                decision=str(candidate.get("decision") or "CANDIDATE").upper()[:16],
+                stage=str(candidate.get("stage") or "DETECTED")[:32],
+                candidate_ts=candle_ts, entry_price=entry, atr_value=atr_value,
+                latest_price=entry, bars_observed=0, mfe_pct=0.0, mae_pct=0.0,
+                outcome="ACTIVE", payload=json.dumps(payload, default=str),
+                created_at=now, updated_at=now,
+            ))
+            await session.commit()
+            return True
+        except Exception as exc:
+            await session.rollback()
+            # A concurrent duplicate is harmless; the primary key is the final arbiter.
+            logger.warning("Strategy candidate persistence failed for %s: %s", key, exc)
+            return False
+
+
+async def update_strategy_candidate_outcomes(
+    pair: str, candle_ts: int, high: float, low: float, close: float,
+    interval_ms: int = 300000,
+) -> int:
+    """Update ORB/MEX candidate excursions once per subsequent completed candle."""
+    import json
+    import math
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from database import db as database_db
+    from database.models import StrategyCandidateRecord
+
+    factory = database_db.SessionLocal
+    if factory is None:
+        return 0
+    try:
+        candle_ts = int(candle_ts)
+        high, low, close = float(high), float(low), float(close)
+        interval_ms = max(1, int(interval_ms))
+        if candle_ts <= 0 or not all(math.isfinite(x) and x > 0 for x in (high, low, close)) or high < low:
+            return 0
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    updated = 0
+    async with factory() as session:
+        try:
+            result = await session.execute(select(StrategyCandidateRecord).where(
+                StrategyCandidateRecord.pair == pair,
+                StrategyCandidateRecord.engine == "momentum",
+                StrategyCandidateRecord.outcome == "ACTIVE",
+                StrategyCandidateRecord.candidate_ts < candle_ts,
+            ))
+            for row in result.scalars().all():
+                try:
+                    payload = json.loads(row.payload or "{}")
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    last_ts = int(payload.get("last_observed_candle_ts") or row.candidate_ts)
+                    if candle_ts <= last_ts:
+                        continue
+                    # Never count a skipped/missing bar as an observation window.
+                    if candle_ts != last_ts + interval_ms:
+                        payload["data_gap"] = True
+                        payload["last_observed_candle_ts"] = candle_ts
+                        row.payload = json.dumps(payload, default=str)
+                        row.updated_at = now
+                        continue
+                    entry = float(row.entry_price)
+                    favorable = (high - entry) if row.direction == "LONG" else (entry - low)
+                    adverse = (low - entry) if row.direction == "LONG" else (entry - high)
+                    move_mfe = favorable / entry * 100.0
+                    move_mae = adverse / entry * 100.0
+                    row.mfe_pct = max(float(row.mfe_pct or 0.0), move_mfe)
+                    row.mae_pct = min(float(row.mae_pct or 0.0), move_mae)
+                    row.latest_price = close
+                    row.bars_observed = int(row.bars_observed or 0) + 1
+                    payload["last_observed_candle_ts"] = candle_ts
+                    payload["mfe_atr"] = max(
+                        float(payload.get("mfe_atr") or 0.0),
+                        favorable / row.atr_value if row.atr_value > 0 else 0.0,
+                    )
+                    payload["mae_atr"] = min(
+                        float(payload.get("mae_atr") or 0.0),
+                        adverse / row.atr_value if row.atr_value > 0 else 0.0,
+                    )
+                    payload["latest_close"] = close
+                    if row.bars_observed in (3, 6, 12):
+                        payload[f"window_{row.bars_observed}"] = {
+                            "mfe_pct": round(row.mfe_pct, 6),
+                            "mae_pct": round(row.mae_pct, 6),
+                            "mfe_atr": round(float(payload.get("mfe_atr") or 0.0), 4),
+                            "mae_atr": round(float(payload.get("mae_atr") or 0.0), 4),
+                            "reached_1_atr": float(payload.get("mfe_atr") or 0.0) >= 1.0,
+                            "reached_1_5_atr": float(payload.get("mfe_atr") or 0.0) >= 1.5,
+                            "reached_2_atr": float(payload.get("mfe_atr") or 0.0) >= 2.0,
+                        }
+                    if row.bars_observed >= 12:
+                        row.outcome = "OBSERVED_12"
+                    row.payload = json.dumps(payload, default=str)
+                    row.updated_at = now
+                    updated += 1
+                except (TypeError, ValueError, OverflowError):
+                    continue
+            await session.commit()
+            return updated
+        except Exception as exc:
+            await session.rollback()
+            logger.error("Strategy candidate outcome update failed for %s: %s", pair, exc)
+            return 0
+
+
+async def strategy_candidate_performance_report(days: int = 7) -> dict:
+    """Summarize candidate outcomes separately from delivered signal outcomes."""
+    import json
+    from datetime import datetime, timedelta, timezone
+    from collections import defaultdict
+    from sqlalchemy import select
+    from database import db as database_db
+    from database.models import StrategyCandidateRecord
+
+    factory = database_db.SessionLocal
+    if factory is None:
+        return {"available": False, "scope": "orb_mex_candidates_only", "groups": {}}
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=max(1, min(int(days), 365)))
+    async with factory() as session:
+        result = await session.execute(select(StrategyCandidateRecord).where(
+            StrategyCandidateRecord.created_at >= cutoff
+        ))
+        rows = result.scalars().all()
+    groups = defaultdict(list)
+    for row in rows:
+        groups[f"{row.strategy_family}:{row.strategy}"].append(row)
+    report = {}
+    for name, items in groups.items():
+        payloads = []
+        for item in items:
+            try:
+                value = json.loads(item.payload or "{}")
+                payloads.append(value if isinstance(value, dict) else {})
+            except (TypeError, ValueError):
+                payloads.append({})
+        decisions = defaultdict(int)
+        stages = defaultdict(int)
+        for item in items:
+            decisions[item.decision] += 1
+            stages[item.stage] += 1
+        group = {
+            "count": len(items),
+            "decisions": dict(decisions),
+            "stages": dict(stages),
+            "active": sum(item.outcome == "ACTIVE" for item in items),
+            "completed_12_candles": sum(item.outcome == "OBSERVED_12" for item in items),
+            "avg_mfe_pct": round(sum(item.mfe_pct for item in items) / len(items), 6),
+            "avg_mae_pct": round(sum(item.mae_pct for item in items) / len(items), 6),
+            "windows": {},
+        }
+        for window in (3, 6, 12):
+            values = [p.get(f"window_{window}") for p in payloads if isinstance(p.get(f"window_{window}"), dict)]
+            group["windows"][str(window)] = {
+                "sample_count": len(values),
+                "avg_mfe_pct": round(sum(float(v.get("mfe_pct") or 0) for v in values) / len(values), 6) if values else None,
+                "avg_mae_pct": round(sum(float(v.get("mae_pct") or 0) for v in values) / len(values), 6) if values else None,
+                "reached_1_atr": sum(bool(v.get("reached_1_atr")) for v in values),
+                "reached_1_5_atr": sum(bool(v.get("reached_1_5_atr")) for v in values),
+                "reached_2_atr": sum(bool(v.get("reached_2_atr")) for v in values),
+            }
+        report[name] = group
+    return {"available": True, "scope": "orb_mex_candidates_only", "groups": report}
