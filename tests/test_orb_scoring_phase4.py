@@ -6,7 +6,7 @@ def orb_quality(**overrides):
         "rvol": 1.9, "orb_session_rvol": 1.9, "orb_rolling_rvol": 1.9, "close": 102.0, "vwap": 101.0,
         "ema9": 101.5, "ema21": 100.0, "rsi": 60.0, "atr": 0.5,
         "orb_breakout_extension_atr": 0.25,
-        "macd_direction_ok": True, "roc_direction_ok": True,
+        "macd_direction_ok": True, "macd_hist": 0.1, "roc_direction_ok": True,
     }
     values.update(overrides)
     return values
@@ -32,6 +32,6 @@ def test_orb_score_changes_when_directional_indicators_disagree():
 def test_orb_short_score_uses_mirrored_indicator_direction():
     result = ScoringEngine().score_orb(
         orb_quality(close=98.0, vwap=99.0, ema9=98.5, ema21=100.0,
-                    rsi=42.0, orb_breakout_extension_atr=0.2), "SHORT"
+                    rsi=42.0, macd_hist=-0.1, orb_breakout_extension_atr=0.2), "SHORT"
     )
     assert result.total == 10.0
