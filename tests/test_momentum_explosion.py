@@ -134,3 +134,19 @@ def test_explosion_uses_rising_adx_early_band_and_directional_votes():
 
 def test_explosion_rejects_opposing_di_without_rising_adx():
     assert not evaluate(indicators(plus_di=10.0, minus_di=28.0, adx_rising=False))
+
+def test_stage_two_qualified_mex_is_not_lost_to_a_second_score_gate():
+    from core.scoring_engine import ScoringEngine
+
+    setup = indicators(
+        rvol=1.20, atr_expansion=1.12, rsi=52.0,
+        ema_aligned=True, structure_break=False,
+        macd_direction_ok=False, macd_accel=False,
+        roc_direction_ok=True, rsi_accel=True,
+        squeeze_release=False, compression_active=False, bw_expand=False,
+        adx=18.0, adx_rising=False,
+    )
+    assert evaluate(setup)
+    score = ScoringEngine().score_momentum_explosion(setup, "LONG")
+    assert score.total >= 8.0, score
+    assert score.max_total == 10.0
