@@ -418,9 +418,10 @@ class SignalEngine:
     def _handle_live_candidate(self, pair: str, res: Dict[str, Any], mode: str) -> None:
         engine, direction, candle_ms = "momentum", res["direction"], res["candle_time_ms"]
         live = self._ensure_live_state()
+        strategy = res.get("strategy")
         if self.cooldowns[engine].is_cooling(pair, engine, direction, strategy):
             return
-        active = self.signals[engine].get(pair, engine, direction, signal.get("signal_id"))
+        active = self.signals[engine].get(pair, engine, direction, strategy=strategy)
         if active and active.get("status") == "active" and not active.get("tp1_hit"):
             return
         if not live.first_attempt(pair, direction, candle_ms):
@@ -580,7 +581,7 @@ class SignalEngine:
             await release()
             return reject("not_queued")
 
-        self.cooldowns[engine].set(pair, engine, direction, strategy=strategy)
+        self.cooldowns[engine].set(pair, engine, direction, strategy=res.get("strategy"))
         self._live_emitted.append(time.time())
         self.live_stats["emitted"] += 1
         self._live_post_entry[(pair, direction)] = [risk.entry, risk.entry]
@@ -620,7 +621,8 @@ class SignalEngine:
                     remaining = int(self.cooldowns[engine].default_seconds - elapsed)
                     if remaining > 0:
                         self.cooldowns[engine].set(
-                            signal["pair"], engine, signal["direction"], seconds=remaining
+                            signal["pair"], engine, signal["direction"], seconds=remaining,
+                            strategy=signal.get("strategy"),
                         )
                 except (TypeError, ValueError):
                     logger.warning(
