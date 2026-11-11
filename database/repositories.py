@@ -116,6 +116,11 @@ async def update_signal_record(signal: dict, status: str) -> bool:
                 except (TypeError, ValueError):
                     payload = {}
                 stored_candle = payload.get("candle_time_ms") or payload.get("candle_ts")
+                # Multiple independent strategies can legitimately signal the
+                # same pair/direction/candle. Update only the matching strategy.
+                requested_strategy = signal.get("strategy")
+                if requested_strategy is not None and payload.get("strategy") != requested_strategy:
+                    continue
                 if candle_ms is not None:
                     if stored_candle is not None and int(stored_candle) == int(candle_ms):
                         matched.append(record)
