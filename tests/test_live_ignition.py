@@ -183,8 +183,8 @@ def asia_context(range_candle_overrides=None):
 def test_opening_range_ready_only_after_range_end():
     arrays = make_arrays(ASIA_OPEN_MS + 30 * 60_000)
     completed = {k: arrays[k] for k in ("time", "open", "high", "low", "close")}
-    early = orb_detector.opening_range(completed, "asia", ASIA_OPEN_MS + 10 * 60_000)
-    ready = orb_detector.opening_range(completed, "asia", ASIA_OPEN_MS + 30 * 60_000 + 1_000)
+    early = orb_detector.opening_range(completed, "asia", ASIA_OPEN_MS + 4 * 60_000)
+    ready = orb_detector.opening_range(completed, "asia", ASIA_OPEN_MS + 5 * 60_000 + 1_000)
     assert early["state"] == "BUILDING_RANGE"
     assert ready["state"] == "READY" and ready["range_high"] == pytest.approx(100.2)
     late = orb_detector.opening_range(completed, "asia", ASIA_OPEN_MS + 5 * 3_600_000)
@@ -284,7 +284,8 @@ def test_closed_explosion_uses_directional_indicators_not_candle_geometry():
     from strategies.momentum import explosion_detector
     indicators = {
         "direction": "LONG", "rvol": 1.65, "atr_expansion": 1.16,
-        "rsi": 58.0, "ema_aligned": True, "macd_direction_ok": True,
+        "rsi": 58.0, "adx": 22.0, "plus_di": 28.0, "minus_di": 16.0,
+        "ema_aligned": True, "macd_direction_ok": True, "roc_direction_ok": True,
         "macd_accel": True, "squeeze_release": True, "bw_expand": True,
     }
     assert explosion_detector.evaluate(indicators) is True
