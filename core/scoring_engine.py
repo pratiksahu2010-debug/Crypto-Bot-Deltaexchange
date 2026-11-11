@@ -8,7 +8,8 @@ _NUMERIC_BOUNDS = {
     "ema9": (0.0, None), "ema21": (0.0, None),
     "close": (0.0, None), "vwap": (0.0, None), "orb_vwap": (0.0, None), "atr": (0.0, None),
     "adx": (0.0, 100.0), "rsi": (0.0, 100.0), "rsi_prev": (0.0, 100.0),
-    "rvol": (0.0, None), "orb_session_rvol": (0.0, None), "atr_pct": (0.0, None),
+    "rvol": (0.0, None), "orb_session_rvol": (0.0, None),
+    "orb_rolling_rvol": (0.0, None), "atr_pct": (0.0, None),
     "body_ratio": (0.0, 1.0), "atr_expansion": (0.0, None),
     "close_location": (0.0, 1.0),
     "orb_breakout_extension_atr": (0.0, None),
@@ -249,6 +250,13 @@ class ScoringEngine:
             f"Session RVOL meets {rvol_floor:.2f} minimum" if volume_ok
             else f"Session RVOL below {rvol_floor:.2f}")
 
+        rolling_rvol = values.get("orb_rolling_rvol")
+        rolling_floor = max(1.20, rvol_floor * 0.85)
+        rolling_ok = rolling_rvol is not None and rolling_rvol >= rolling_floor
+        add("ORB Rolling RVOL", 0.5 if rolling_ok else 0.0, 0.5, rolling_rvol,
+            f"Rolling RVOL meets {rolling_floor:.2f} minimum" if rolling_ok
+            else f"Rolling RVOL below {rolling_floor:.2f}")
+
         e9, e21 = values.get("ema9"), values.get("ema21")
         ema_ok = e9 is not None and e21 is not None and (e9 > e21 if is_long else e9 < e21)
         add("ORB EMA 9/21", 1.5 if ema_ok else 0.0, 1.5, (e9, e21),
@@ -286,7 +294,7 @@ class ScoringEngine:
 
         atr_value = values.get("atr")
         atr_ok = atr_value is not None and atr_value > 0
-        add("ORB ATR", 0.75 if atr_ok else 0.0, 0.75, atr_value,
+        add("ORB ATR", 0.5 if atr_ok else 0.0, 0.5, atr_value,
             "ATR available" if atr_ok else "ATR unavailable")
 
         distance = values.get("orb_breakout_extension_atr")
@@ -295,7 +303,7 @@ class ScoringEngine:
         except (TypeError, ValueError, OverflowError):
             extension_limit = 0.80
         distance_ok = distance is not None and math.isfinite(extension_limit) and distance <= extension_limit
-        add("ORB Breakout Extension", 1.0 if distance_ok else 0.0, 1.0, distance,
+        add("ORB Breakout Extension", 0.75 if distance_ok else 0.0, 0.75, distance,
             f"Extension within {extension_limit:.2f} ATR qualification limit"
             if distance_ok else f"Extension exceeds {extension_limit:.2f} ATR")
 
