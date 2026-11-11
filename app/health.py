@@ -116,17 +116,18 @@ def _market_data_freshness(request: Request) -> dict:
                 )
             except (TypeError, ValueError, OverflowError):
                 effective_candle_age = None
-            history_count = None
             required_history_count = 300
+            history_count = None
+            history_ready = False
             if isinstance(item, dict):
                 history_count = item.get("completed_history_count")
-                if history_count is None:
-                    history_count = item.get("candle_count")
                 required_history_count = item.get("required_history_count") or 300
+                history_ready = item.get("history_ready") is True
             try:
                 history_count_ready = (
-                    history_count is None
-                    or int(history_count) >= int(required_history_count)
+                    history_ready
+                    and history_count is not None
+                    and int(history_count) >= int(required_history_count)
                 )
             except (TypeError, ValueError, OverflowError):
                 history_count_ready = False
@@ -137,7 +138,6 @@ def _market_data_freshness(request: Request) -> dict:
                 and -60.0 <= age <= stale_after
                 and effective_candle_age is not None
                 and 0.0 <= effective_candle_age <= candle_age_limit
-                and item.get("history_ready") is not False
                 and history_count_ready
                 and int(item.get("missing_candle_count") or 0) == 0
             )
