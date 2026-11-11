@@ -66,8 +66,8 @@ def validate_runtime_config() -> None:
             "Production strategy requires CANDLE_PRIMARY_TF=5m for entries and ORB."
         )
 
-    # NaN silently bypasses ordinary < / > checks. Reject non-finite strategy,
-    # liquidity and execution-quality thresholds before the scanner starts.
+    # NaN silently bypasses ordinary < / > checks. Reject non-finite strategy
+    # and execution-quality thresholds before the scanner starts.
     import math
     numeric_settings = {
         "SIGNAL_THRESHOLD": settings.signal_threshold,
@@ -76,8 +76,6 @@ def validate_runtime_config() -> None:
         "MOMENTUM_ADX_MIN": settings.momentum_adx_explosion,
         "NORMAL_MAX_EXTENSION_ATR": settings.normal_max_extension_atr,
         "NORMAL_PULLBACK_TOUCH_ATR": settings.normal_pullback_touch_atr,
-        "NORMAL_MIN_24H_TURNOVER_USDT": settings.normal_min_24h_turnover_usdt,
-        "MOMENTUM_MIN_24H_TURNOVER_USDT": settings.momentum_min_24h_turnover_usdt,
         "ORB_MIN_RVOL": settings.orb_min_rvol,
         "ORB_ADX_MIN": settings.orb_adx_min,
         "ORB_MAX_EXTENSION_ATR": settings.orb_max_extension_atr,
@@ -117,10 +115,6 @@ def validate_runtime_config() -> None:
             f"MAX_CANDLES_BUFFER must be at least {PRIMARY_CANDLE_HISTORY} "
             "to retain the full indicator warm-up history"
         )
-    if settings.normal_symbol_limit < 1 or settings.momentum_symbol_limit < 1:
-        raise ValueError("Normal and Momentum symbol limits must be positive")
-    if settings.normal_min_24h_turnover_usdt <= 0 or settings.momentum_min_24h_turnover_usdt <= 0:
-        raise ValueError("Minimum 24h Futures turnover thresholds must be positive")
     if not 0.0 <= settings.signal_threshold <= 10.0:
         raise ValueError("SIGNAL_THRESHOLD must be between 0 and 10")
     if not 0.0 < settings.normal_rvol_min:
@@ -237,8 +231,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "watchlist_count": 0,
         "valid_symbols_normal": len(symbol_mgr.normal_symbols),
         "valid_symbols_momentum": len(symbol_mgr.momentum_symbols),
-        "expected_symbols_normal": settings.normal_symbol_limit,
-        "expected_symbols_momentum": settings.momentum_symbol_limit,
+        "expected_symbols_normal": 40,
+        "expected_symbols_momentum": 100,
         "scan_count": 0,
         "ws_reconnects": 0,
         "database": ("postgres" if settings.use_postgres else "sqlite") if database_ready else "unavailable",
@@ -247,12 +241,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         "telegram_polling": bool(tg.polling_active),
         "eligible_symbols": len(symbol_mgr.valid_pairs),
         "skipped_symbols": len(symbol_mgr.skipped_reasons),
-        "liquidity_filtered_symbols": sum(
-            item.get("status") in ("LOW_LIQUIDITY", "LIQUIDITY_UNKNOWN", "PARTIAL_LIQUIDITY")
-            for item in symbol_mgr.whitelist_diagnostics.values()
-        ),
-        "normal_min_24h_turnover_usdt": settings.normal_min_24h_turnover_usdt,
-        "momentum_min_24h_turnover_usdt": settings.momentum_min_24h_turnover_usdt,
+
     }
 
     # Never run strategy scans without durable signal-claim storage. Keep the
