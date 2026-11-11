@@ -1164,6 +1164,7 @@ class SignalEngine:
         indicators["not_chasing"] = extension <= (
             settings.normal_max_extension_atr if engine == "normal" else 1.25
         )
+        orb_qualified = False
         if engine == "normal":
             # Fresh indicator transition: EMA cross, VWAP reclaim or EMA pullback.
             # No candle-colour/body/wick predicate participates in the trigger.
