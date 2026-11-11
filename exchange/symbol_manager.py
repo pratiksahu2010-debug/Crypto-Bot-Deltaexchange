@@ -1,6 +1,5 @@
 """Static strategy allowlists validated against live Delta USD-quoted perpetuals."""
 import re
-import time
 import yaml
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
@@ -18,15 +17,12 @@ class SymbolManager:
         self.momentum_symbols: List[str] = []
         self.pair_to_symbol: Dict[str, str] = {}
         self.metadata: Dict[str, dict] = {}
-        self.liquidity: Dict[str, float] = {}
         self.skipped_reasons: Dict[str, str] = {}
         self.whitelist_diagnostics: Dict[str, dict] = {}
         self._ranked_normal: List[str] = []
         self._ranked_momentum: List[str] = []
         self._quarantined: Dict[str, dict] = {}
         self._quarantine_retry_seconds = 15 * 60
-        self._last_liquidity_refresh = 0.0
-        self._liquidity_refresh_seconds = 15 * 60
 
     @staticmethod
     def _norm(value: object) -> str:
@@ -79,14 +75,6 @@ class SymbolManager:
             base = cls._norm(normalized.split("_", 1)[0])
         return base in cls.NON_CRYPTO_BASES
 
-    @staticmethod
-    def _as_positive(value: object) -> float:
-        try:
-            number = float(value)
-            return number if number > 0 and number < float("inf") else 0.0
-        except (TypeError, ValueError, OverflowError):
-            return 0.0
-
     def _load_yaml(self, rel_path: str) -> List[str]:
         path = Path(__file__).resolve().parent.parent / rel_path
         if not path.exists():
@@ -99,62 +87,6 @@ class SymbolManager:
         except Exception as exc:
             logger.warning(f"Could not read optional symbol preferences {path}: {exc}")
             return []
-
-    def _ticker_liquidity(self, ticker_rows: list) -> Dict[str, float]:
-        """Estimate 24h USDT turnover from documented Futures base volume x LTP."""
-        values: Dict[str, float] = {}
-        age_getter = getattr(self.rest, "_ticker_age_seconds", None)
-        freshness_check = getattr(self.rest, "_is_fresh_ticker_age", None)
-        now_ms = int(time.time() * 1000)
-        max_age = getattr(self.rest, "MAX_REST_TICKER_AGE_SECONDS", 10.0)
-        for row in ticker_rows or []:
-            if not isinstance(row, dict):
-                continue
-            if callable(age_getter) and callable(freshness_check):
-                age = age_getter(row.get("timestamp"), now_ms)
-                if not freshness_check(age, max_age):
-                    continue
-            aliases = [
-                row.get("market"), row.get("pair"), row.get("symbol"),
-                row.get("market_name"),
-            ]
-            # Prefer Delta's explicit USD turnover; do not infer quote notional
-            # from contract volume because Delta contracts have varying multipliers.
-            quote_volume = 0.0
-            for key in (
-                "quote_volume", "quoteVolume", "volume_quote",
-                "turnover_usdt", "turnover_24h_usdt", "quote_volume_24h_usdt",
-                "turnover_usd",
-            ):
-                quote_volume = self._as_positive(row.get(key))
-                if quote_volume:
-                    break
-            if not quote_volume:
-                # Delta Futures volume is contract count, not necessarily base
-                # asset quantity. Never estimate USD turnover from contracts:
-                # contract_value and unit currency vary by product. Delta's
-                # normalized rows always carry turnover_usd (including zero).
-                is_delta_market = (
-                    "turnover_usd" in row
-                    or "delta_symbol" in row
-                    or str(row.get("contract_type") or "").lower() == "perpetual_futures"
-                )
-                if not is_delta_market:
-                    # Compatibility fallback for legacy feeds whose volume is
-                    # explicitly a base-asset quantity rather than contracts.
-                    base_volume = self._as_positive(
-                        row.get("base_volume") or row.get("v")
-                    )
-                    last_price = self._as_positive(
-                        row.get("last_price") or row.get("lastPrice") or row.get("ls")
-                    )
-                    quote_volume = base_volume * last_price if base_volume and last_price else 0.0
-            if quote_volume > 0:
-                for alias in aliases:
-                    key = self._norm(alias)
-                    if key:
-                        values[key] = max(values.get(key, 0.0), quote_volume)
-        return values
 
     async def load_and_validate(self) -> None:
         details = []
@@ -169,13 +101,11 @@ class SymbolManager:
             logger.error("No live USD-quoted Delta perpetual products; static universes remain empty")
 
         # Symbol membership is controlled only by the checked-in static YAML
-        # allowlists and live perpetual-product validation. Ticker turnover is
-        # deliberately not fetched or used for selection.
+        # allowlists and live perpetual-product validation.
 
         self.valid_pairs.clear()
         self.metadata.clear()
         self.pair_to_symbol.clear()
-        self.liquidity.clear()
         self.skipped_reasons.clear()
 
         for market in details:
@@ -210,9 +140,6 @@ class SymbolManager:
             display = f"{target}/USD" if target else pair.removeprefix("B-").removeprefix("I-").replace("_", "/")
             self.pair_to_symbol[pair] = display
 
-            # Retained only for backward-compatible diagnostics; never gates
-            # eligibility or changes static allowlist membership.
-            self.liquidity[pair] = 0.0
 
         logger.info(
             f"Loaded {len(self.valid_pairs)} eligible active Delta perpetual markets "
@@ -304,40 +231,6 @@ class SymbolManager:
         if not self.valid_pairs:
             logger.error("No eligible live Delta perpetual markets were discovered")
 
-
-    async def _refresh_liquidity_ranking(self) -> None:
-        """Refresh 24h turnover inputs; static allowlist order remains authoritative."""
-        ticker_rows = await self.rest.get_ticker()
-        latest = self._ticker_liquidity(ticker_rows)
-        if not latest:
-            logger.warning("Liquidity refresh returned no usable Futures turnover; retaining last valid filter snapshot")
-            self._last_liquidity_refresh = (
-                __import__("time").time() - self._liquidity_refresh_seconds + 300
-            )
-            return
-
-        updated_liquidity = {}
-        for pair in self.valid_pairs:
-            metadata = self.metadata.get(pair, {})
-            aliases = (
-                pair, metadata.get("pair"), metadata.get("symbol"),
-            )
-            updated_liquidity[pair] = max(
-                (latest.get(self._norm(alias), 0.0) for alias in aliases), default=0.0
-            )
-        if not any(volume > 0 for volume in updated_liquidity.values()):
-            logger.warning(
-                "Liquidity refresh did not match any Futures markets; retaining last valid filter snapshot"
-            )
-            self._last_liquidity_refresh = (
-                __import__("time").time() - self._liquidity_refresh_seconds + 300
-            )
-            return
-
-        # Updated turnover is consumed by _select_active_symbols on the next
-        # universe refresh; configured YAML order remains authoritative.
-        self.liquidity.update(updated_liquidity)
-        self._last_liquidity_refresh = __import__("time").time()
 
     def _refresh_quarantine_from_rest(self) -> None:
         """Quarantine markets whose required candle feeds repeatedly return stale history."""
