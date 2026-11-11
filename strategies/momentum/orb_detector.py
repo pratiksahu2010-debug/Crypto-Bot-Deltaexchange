@@ -217,11 +217,17 @@ def evaluate(
         volume_values = volumes
         session_start_ms = int(start.astimezone(timezone.utc).timestamp() * 1000)
         session_idx = int(np.searchsorted(stamps, session_start_ms, side="left"))
+        # If the only available session candle is the opening-range candle,
+        # there is no post-range bar to evaluate yet. This is simply inside the
+        # range, not a missing-volume error or a pre-breakout signal.
+        if session_idx >= n - 1:
+            return _result(
+                "INSIDE_RANGE", meta, range_high=range_high,
+                range_low=range_low, range_width_atr=round(width_atr, 4),
+            )
         # Each session gets its own volume baseline. Never include pre-session
         # bars: the opening candle is the initial baseline, then the baseline
         # expands to the mean of all completed bars since this session opened.
-        # This supports a one-candle OR without borrowing unrelated overnight
-        # liquidity from another session.
         prior_session_volumes = volume_values[session_idx:-1]
         if len(prior_session_volumes) < 1:
             return _result(
