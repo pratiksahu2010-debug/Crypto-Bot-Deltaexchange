@@ -159,12 +159,14 @@ def test_orb_rejects_weak_adx_even_with_high_volume():
     assert result["adx"] == 14.5
 
 
-def test_orb_rejects_directionally_misaligned_di():
+def test_orb_scores_marginal_di_disagreement_instead_of_hard_rejecting():
     result = evaluate(
         candles_for("london", "SHORT"), 0.8, session="london",
         min_rvol=1.4, adx_value=25, plus_di=30, minus_di=15,
     )
-    assert result["state"] == "DI_NOT_ALIGNED"
+    assert result["state"] == "ORB_BREAKOUT", result
+    assert result["di_aligned"] is False
+    assert result["indicator_confirmation"]["passed"] >= 3
 
 
 def test_orb_volume_baseline_excludes_pre_session_bars():
@@ -198,3 +200,31 @@ def test_telegram_does_not_label_generic_momentum_as_orb_from_session_metadata()
     })
     assert "<b>SIGNAL TYPE:</b> ORB" in orb
     assert "<b>ORB SESSION:</b> london" in orb
+
+
+
+def test_orb_rising_adx_can_qualify_in_early_strength_band():
+    result = evaluate(
+        candles_for("london", "LONG"), 0.8, 1.5, session="london",
+        min_rvol=1.4, adx_value=15.5, plus_di=30, minus_di=15,
+        adx_rising=True, adx_min=20,
+    )
+    assert result["state"] == "ORB_BREAKOUT", result
+    assert result["adx_rising"] is True
+
+
+def test_orb_retest_path_is_optional_and_directional():
+    data = candles_for("london", "LONG")
+    last_time = int(data["time"][-1]) + 300_000
+    data["time"] = np.append(data["time"], last_time)
+    data["open"] = np.append(data["open"], 101.0)
+    data["high"] = np.append(data["high"], 101.25)
+    data["low"] = np.append(data["low"], 100.75)
+    data["close"] = np.append(data["close"], 101.10)
+    data["volume"] = np.append(data["volume"], 180.0)
+    result = evaluate(
+        data, 1.6, 1.5, session="london", min_rvol=1.4,
+        adx_value=25, plus_di=30, minus_di=15,
+    )
+    assert result["state"] == "ORB_RETEST", result
+    assert result["retest_touch"] is True
