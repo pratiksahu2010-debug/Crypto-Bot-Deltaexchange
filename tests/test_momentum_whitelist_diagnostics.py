@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 from exchange.symbol_manager import SymbolManager
+from exchange.delta_rest import DeltaExchangeRest
 
 
 def _fixed_lists():
@@ -21,6 +22,7 @@ def _asset(pair):
 
 class FakeRest:
     MAX_REST_TICKER_AGE_SECONDS = 15.0
+    _ticker_age_seconds = staticmethod(DeltaExchangeRest._ticker_age_seconds)
 
     def __init__(self, details, omit_tickers=False):
         self.details = details
