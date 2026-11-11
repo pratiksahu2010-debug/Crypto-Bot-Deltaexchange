@@ -7,19 +7,20 @@ from exchange.candle_builder import CandleBuffer, CandleBuilder
 
 def test_signal_can_reenter_after_terminal_state():
     m = SignalManager(ttl_hours=1)
-    s = {"pair":"B-BTC_USDT", "engine":"normal", "direction":"LONG", "score":8}
+    s = {"pair":"B-BTC_USDT", "engine":"normal", "direction":"LONG", "score":8, "candle_time_ms":100}
     assert m.add(s)
     assert not m.add(s)
     assert m.mark_sl(s["pair"], s["engine"], s["direction"])
-    assert m.add(s)
+    later = {**s, "candle_time_ms":200}
+    assert m.add(later)
 
 
 def test_signal_expires_and_can_reenter():
     m = SignalManager(ttl_hours=1)
-    s = {"pair":"B-ETH_USDT", "engine":"normal", "direction":"SHORT", "score":8}
+    s = {"pair":"B-ETH_USDT", "engine":"normal", "direction":"SHORT", "score":8, "candle_time_ms":100}
     assert m.add(s)
-    m._signals[m._key(s['pair'],s['engine'],s['direction'])]['expires_at'] = (datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
-    assert m.add(s)
+    m._signals[m._record_key(s)]['expires_at'] = (datetime.now(timezone.utc)-timedelta(seconds=1)).isoformat()
+    assert m.add({**s, "candle_time_ms":200})
 
 
 def test_candle_buffer_deduplicates_and_ignores_older():
@@ -116,19 +117,20 @@ def test_fixed_symbol_universe_preserves_allowlist_and_active_status(monkeypatch
 
         async def get_ticker(self):
             return [
-                {"market": "B-BTC_USDT", "base_volume": "10", "last_price": "100"},
-                {"market": "B-ETH_USDT", "base_volume": "20", "last_price": "10"},
-                {"market": "B-LOW_USDT", "base_volume": "1", "last_price": "1"},
+                {"market": "B-BTC_USDT", "base_volume": "20000", "last_price": "100"},
+                {"market": "B-ETH_USDT", "base_volume": "120000", "last_price": "10"},
+                {"market": "B-LOW_USDT", "base_volume": "100000", "last_price": "1"},
             ]
 
     async def run():
         manager = SymbolManager(FakeRest())
         await manager.load_and_validate()
-        # Turnover is telemetry only: configured active allowlist members stay eligible.
+        # The fixed allowlist is retained, but low-turnover contracts are not scanned.
         assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
-        assert manager.liquidity["B-ETH_USDT"] == 200.0
-        assert manager.liquidity["B-LOW_USDT"] == 1.0
+        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+        assert manager.liquidity["B-ETH_USDT"] == 1_200_000.0
+        assert manager.liquidity["B-LOW_USDT"] == 100_000.0
+        assert manager.whitelist_diagnostics["LOWUSDT"]["status"] == "LOW_TURNOVER"
         assert "B-OFF_USDT" not in manager.valid_pairs
         assert "B-LOW_USDT" in manager.valid_pairs
 
@@ -790,7 +792,7 @@ def test_normal_engine_has_no_macd_gate():
     # Missing or opposing MACD data must not affect Normal Engine approval.
     without_macd = _normal_threshold_gates(base, "LONG", 25.0)
     opposing_macd = _normal_threshold_gates({**base, "macd_hist": -999.0}, "LONG", 25.0)
-    assert len(without_macd) == 5
+    assert len(without_macd) == 6
     assert all(without_macd.values())
     assert opposing_macd == without_macd
 
@@ -882,9 +884,10 @@ def test_static_universe_fails_closed_when_turnover_data_is_missing(monkeypatch)
     async def run():
         manager = SymbolManager(FakeRest())
         await manager.load_and_validate()
-        assert manager.normal_symbols == ["B-BTC_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT"]
+        assert manager.normal_symbols == []
+        assert manager.momentum_symbols == []
         assert manager.liquidity["B-BTC_USDT"] == 0.0
+        assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
 
     asyncio.run(run())
 
