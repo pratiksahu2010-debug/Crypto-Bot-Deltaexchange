@@ -107,6 +107,8 @@ class LiveContext:
     compression_recent: bool
     last_close: float
     compression_age: Optional[int] = None
+    swing_high: Optional[float] = None
+    swing_low: Optional[float] = None
     orb: Dict[str, dict] = field(default_factory=dict)
 
     @property
@@ -133,6 +135,29 @@ def _compression_recent(high: np.ndarray, low: np.ndarray, close: np.ndarray, ba
     return _compression_age(high, low, close, bars) is not None
 
 
+def _confirmed_swing_levels(
+    high: np.ndarray, low: np.ndarray, lookback: int = 30, left: int = 2, right: int = 2,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Latest confirmed pivot levels from completed candles only."""
+    if high.size != low.size or high.size < left + right + 2:
+        return None, None
+    start = max(0, high.size - max(lookback, left + right + 2))
+    end = high.size - right
+    pivot_high = pivot_low = None
+    for idx in range(start + left, end):
+        h_window = high[idx - left:idx + right + 1]
+        l_window = low[idx - left:idx + right + 1]
+        if high[idx] >= np.max(h_window) and np.count_nonzero(high[idx] == h_window) == 1:
+            pivot_high = float(high[idx])
+        if low[idx] <= np.min(l_window) and np.count_nonzero(low[idx] == l_window) == 1:
+            pivot_low = float(low[idx])
+    if pivot_low is None and high.size >= 8:
+        pivot_low = float(np.min(low[-8:-1]))
+    if pivot_high is None and high.size >= 8:
+        pivot_high = float(np.max(high[-8:-1]))
+    return pivot_high, pivot_low
+
+
 def build_context(
     pair: str, arrays: Dict[str, Any], forming_open_ms: int, interval_ms: int,
     now_ms: int, sessions: Tuple[str, ...] = (), orb_active_minutes: int = 180,
@@ -155,6 +180,7 @@ def build_context(
         avg_volume = float(np.mean(v[-20:]))
         if atr_v is None or atr_v <= 0 or not math.isfinite(avg_volume) or avg_volume <= 0:
             return None
+        swing_high, swing_low = _confirmed_swing_levels(h, l, lookback=30, left=2, right=2)
         ctx = LiveContext(
             pair=pair, forming_open_ms=int(forming_open_ms), interval_ms=int(interval_ms),
             atr=float(atr_v), avg_volume=avg_volume,
@@ -163,6 +189,7 @@ def build_context(
             compression_recent=_compression_recent(h[tail], l[tail], c[tail]),
             last_close=float(c[-1]),
             compression_age=_compression_age(h[tail], l[tail], c[tail]),
+            swing_high=swing_high, swing_low=swing_low,
         )
         if sessions:
             completed = {"time": times[done], "open": o, "high": h, "low": l, "close": c}
@@ -261,8 +288,8 @@ def evaluate_explosion(ctx: LiveContext, candle: Dict[str, Any], now_ms: int,
         "structure_break": bool(structure_break), "compression_recent": bool(ctx.compression_recent),
         "squeeze_ignition": bool(squeeze_ignition),
         "impulse": bool(impulse), "high": h, "low": l,
-        # Stop loss is ATR-based in the shared risk calculator, not candle-shape based.
-        "swing_low": None, "swing_high": None,
+        # Structural stop anchors are confirmed from completed candles only.
+        "swing_low": ctx.swing_low, "swing_high": ctx.swing_high,
         "ema9": ctx.ema9, "ema21": ctx.ema21, "ema50": ctx.ema50,
     }
     result["score_result"] = score_explosion(result, ctx, cfg)
@@ -396,8 +423,10 @@ class LiveTracker:
         return None
 
     # -- one attempt per pair/direction/candle ---------------------------------
-    def first_attempt(self, pair: str, direction: str, candle_ms: int) -> bool:
-        key = (pair, direction, int(candle_ms))
+    def first_attempt(self, pair: str, direction: str, candle_ms: int,
+                      strategy: Optional[str] = None) -> bool:
+        # MEX and ORB are independent on the same pair and candle.
+        key = (pair, direction, int(candle_ms), str(strategy or ""))
         if key in self._attempted:
             return False
         self._attempted.add(key)
