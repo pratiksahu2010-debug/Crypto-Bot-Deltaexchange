@@ -16,6 +16,8 @@ def indicators(**overrides):
         "adx": 22.0, "plus_di": 28.0, "minus_di": 16.0,
     }
     values.update(overrides)
+    if values["direction"] == "SHORT" and "plus_di" not in overrides and "minus_di" not in overrides:
+        values["plus_di"], values["minus_di"] = 16.0, 28.0
     return values
 
 
