@@ -153,11 +153,11 @@ def test_normal_engine_uses_five_indicator_gates():
     gates = _normal_threshold_gates(indicators, "LONG", 20.0)
     assert set(gates) == {
         "ema_9_21", "vwap_direction", "rsi_direction",
-        "adx_min_25", "atr_valid", "confirm_15m",
+        "adx_min_20", "atr_valid", "confirm_15m",
     }
     assert all(gates.values())
     # The production hard floor is 25 even when a caller supplies 20.
-    assert _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 20.0)["adx_min_25"] is False
+    assert _normal_threshold_gates({**indicators, "adx": 19.99}, "LONG", 20.0)["adx_min_20"] is False
     assert _normal_threshold_gates({**indicators, "rsi": 49.0}, "LONG", 20.0)["rsi_direction"] is False
 
 
@@ -193,11 +193,11 @@ def test_normal_adx_config_can_only_raise_the_required_floor():
 
     base = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 55.0, "adx": 24.99, "atr": 0.5, "confirm_15m": True,
+        "rsi": 55.0, "adx": 19.99, "atr": 0.5, "confirm_15m": True,
     }
-    assert _normal_threshold_gates(base, "LONG", 18.0)["adx_min_25"] is False
-    assert _normal_threshold_gates(base, "LONG", 22.0)["adx_min_25"] is False
-    assert _normal_threshold_gates({**base, "adx": 25.0}, "LONG", 22.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(base, "LONG", 18.0)["adx_min_20"] is False
+    assert _normal_threshold_gates(base, "LONG", 22.0)["adx_min_20"] is False
+    assert _normal_threshold_gates({**base, "adx": 22.0}, "LONG", 22.0)["adx_min_20"] is True
 
 
 def test_normal_adx_and_rvol_gates_do_not_override_required_15m_context():
@@ -214,22 +214,22 @@ def test_normal_adx_and_rvol_gates_do_not_override_required_15m_context():
     assert _normal_relative_volume_gate(indicators, "LONG", 1.2) == {
         "relative_volume": True,
     }
-    assert not _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_25"]
+    assert not _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_20"]
     # A 1.2 configured floor must not be silently raised to 1.4.
     assert _normal_relative_volume_gate(
         {**indicators, "rvol": 1.39}, "LONG", 1.2
     ) == {"relative_volume": True}
 
 
-def test_normal_engine_enforces_adx_floor_of_25_even_if_configured_lower():
+def test_normal_engine_enforces_adx_floor_of_20_even_if_configured_lower():
     from core.engine import _normal_threshold_gates
 
     indicators = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 55.0, "adx": 24.99, "atr": 0.5, "confirm_15m": True,
+        "rsi": 55.0, "adx": 19.99, "atr": 0.5, "confirm_15m": True,
     }
-    assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_25"] is False
-    assert _normal_threshold_gates({**indicators, "adx": 25.0}, "LONG", 20.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_20"] is False
+    assert _normal_threshold_gates({**indicators, "adx": 20.0}, "LONG", 20.0)["adx_min_20"] is True
 
 
 def test_15m_context_uses_only_complete_three_bar_groups():
