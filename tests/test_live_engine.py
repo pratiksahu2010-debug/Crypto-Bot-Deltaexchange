@@ -23,6 +23,9 @@ def arrays(forming_open=T0, n=100):
     # Build a mild completed-candle uptrend so live direction comes from EMA9/21,
     # not from the forming candle's colour.
     closes[-25:] = np.linspace(99.5, 100.0, 25)
+    # Add a recent, confirmed local swing low close enough to the entry
+    # for the structural stop to remain within the 3-ATR risk ceiling.
+    closes[-8:] = [100.10, 100.05, 100.00, 100.05, 100.10, 100.05, 100.00, 100.00]
     opens = closes - 0.01
     return {"time": times.astype(np.int64), "open": opens,
             "high": np.maximum(opens, closes) + 0.1, "low": np.minimum(opens, closes) - 0.1,
