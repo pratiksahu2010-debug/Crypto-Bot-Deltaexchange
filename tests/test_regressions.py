@@ -88,60 +88,22 @@ def test_normal_and_momentum_candle_cursors_are_independent():
     assert engine.normal_scoring is not engine.momentum_scoring
 
 
-def test_fixed_symbol_universe_preserves_allowlist_and_active_status(monkeypatch):
-    import asyncio
+def test_fixed_symbol_universe_preserves_configured_order_without_turnover_filter():
     from exchange.symbol_manager import SymbolManager
 
-    # Static allowlist order is retained among liquid members. LOW is
-    # intentionally present only in this fixture; OFF is exchange-inactive.
-    monkeypatch.setattr(
-        SymbolManager, "_load_yaml",
-        lambda self, path: (
-            ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
-            if path.endswith("momentum_symbols.yaml")
-            else ["B-BTC_USDT", "B-ETH_USDT"]
-        ),
-    )
+    manager = SymbolManager(object())
+    manager.valid_pairs = {"B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"}
+    manager._ranked_normal = ["B-BTC_USDT", "B-ETH_USDT"]
+    manager._ranked_momentum = ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
 
-    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 500.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 100_001.0)
+    manager._select_active_symbols()
 
-    class FakeRest:
-        async def get_market_details(self):
-            return [
-                {"pair": "B-BTC_USDT", "base_currency_short_name": "USDT", "target_currency_short_name": "BTC", "status": "active"},
-                {"pair": "B-ETH_USDT", "base_currency_short_name": "USDT", "target_currency_short_name": "ETH", "status": "active"},
-                {"pair": "B-LOW_USDT", "base_currency_short_name": "USDT", "target_currency_short_name": "LOW", "status": "active"},
-                {"pair": "B-OFF_USDT", "base_currency_short_name": "USDT", "target_currency_short_name": "OFF", "status": "inactive"},
-            ]
-
-        async def get_ticker(self):
-            return [
-                {"market": "B-BTC_USDT", "base_volume": "20000", "last_price": "100"},
-                {"market": "B-ETH_USDT", "base_volume": "120000", "last_price": "10"},
-                {"market": "B-LOW_USDT", "base_volume": "100000", "last_price": "1"},
-            ]
-
-    async def run():
-        manager = SymbolManager(FakeRest())
-        await manager.load_and_validate()
-        # The fixed allowlist is retained, but low-turnover contracts are not scanned.
-        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-        assert manager.liquidity["B-ETH_USDT"] == 1_200_000.0
-        assert manager.liquidity["B-LOW_USDT"] == 100_000.0
-        assert manager.whitelist_diagnostics["LOWUSDT"]["status"] == "LOW_TURNOVER"
-        assert "B-OFF_USDT" not in manager.valid_pairs
-        assert "B-LOW_USDT" in manager.valid_pairs
-
-    asyncio.run(run())
-
+    assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
+    assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-LOW_USDT"]
 
 def test_dynamic_symbol_universe_excludes_stablecoin_pairs(monkeypatch):
     import asyncio
     from exchange.symbol_manager import SymbolManager
-    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 2.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 2.0)
 
     class FakeRest:
         async def get_market_details(self):
@@ -285,41 +247,15 @@ def test_rest_client_rejects_historical_stale_market_candles():
 
 
 
-def test_stale_market_quarantine_filters_both_engine_universes_and_restores(monkeypatch):
+def test_stale_market_quarantine_filters_and_restores_configured_symbols(monkeypatch):
     import asyncio
     import time
     from exchange.symbol_manager import SymbolManager
-    from config import settings
-
-    # Include BAD explicitly in both static lists; SOL is the next eligible
-    # configured symbol and backfills a quarantined slot within the static list.
-    monkeypatch.setattr(
-        SymbolManager, "_load_yaml",
-        lambda self, path: ["B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"],
-    )
-
-    old_normal_floor = settings.normal_min_24h_turnover_usdt
-    old_momentum_floor = settings.momentum_min_24h_turnover_usdt
-    settings.normal_min_24h_turnover_usdt = 1.0
-    settings.momentum_min_24h_turnover_usdt = 1.0
 
     class FakeRest:
         def __init__(self):
             self.stale = {"B-BAD_USDT": {"5m": 2, "15m": 1}}
             self.healthy = False
-
-        async def get_market_details(self):
-            return [
-                {"pair": f"B-{name}_USDT", "base_currency_short_name": "USDT",
-                 "target_currency_short_name": name, "status": "active"}
-                for name in ("BTC", "ETH", "SOL", "BAD")
-            ]
-
-        async def get_ticker(self):
-            return [
-                {"market": f"B-{name}_USDT", "base_volume": str(volume), "last_price": "10"}
-                for name, volume in (("BAD", 1000), ("BTC", 900), ("ETH", 800), ("SOL", 700))
-            ]
 
         def get_stale_market_timeframes(self):
             return {pair: dict(value) for pair, value in self.stale.items()}
@@ -327,44 +263,40 @@ def test_stale_market_quarantine_filters_both_engine_universes_and_restores(monk
         async def get_candles(self, pair, interval, limit=100):
             if not self.healthy:
                 return []
-            return [{"time": i, "open": 1, "high": 2, "low": .5, "close": 1.5, "volume": 10}
-                    for i in range(100 if interval == "5m" else 110)]
+            return [
+                {"time": i, "open": 1, "high": 2, "low": 0.5, "close": 1.5, "volume": 10}
+                for i in range(100)
+            ]
 
     async def run():
-        old_normal, old_momentum = settings.normal_symbol_limit, settings.momentum_symbol_limit
-        settings.normal_symbol_limit, settings.momentum_symbol_limit = 2, 3
-        try:
-            rest = FakeRest()
-            manager = SymbolManager(rest)
-            await manager.load_and_validate()
-            assert manager.normal_symbols == ["B-BAD_USDT", "B-BTC_USDT"]
-            assert manager.momentum_symbols == ["B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT"]
+        rest = FakeRest()
+        manager = SymbolManager(rest)
+        manager.valid_pairs = {
+            "B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT",
+        }
+        manager._ranked_normal = ["B-BAD_USDT", "B-BTC_USDT"]
+        manager._ranked_momentum = [
+            "B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT",
+        ]
 
-            manager._refresh_quarantine_from_rest()
-            manager._select_active_symbols()
-            assert "B-BAD_USDT" not in manager.normal_symbols
-            assert "B-BAD_USDT" not in manager.momentum_symbols
-            assert len(manager.normal_symbols) == 2
-            # Backfill comes only from the remaining configured static allowlist.
-            assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
-            assert "B-BAD_USDT" in manager.skipped_reasons
+        manager._refresh_quarantine_from_rest()
+        manager._select_active_symbols()
+        assert manager.normal_symbols == ["B-BTC_USDT"]
+        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
+        assert "B-BAD_USDT" in manager.skipped_reasons
 
-            # Simulate the 15-minute retry deadline and recovery of both feeds.
-            rest.stale.clear()
-            rest.healthy = True
-            manager._quarantined["B-BAD_USDT"]["retry_at"] = time.time() - 1
-            await manager.refresh_universes()
-            assert "B-BAD_USDT" not in manager._quarantined
-            assert manager.normal_symbols[0] == "B-BAD_USDT"
-            assert manager.momentum_symbols == ["B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT"]
-            assert "B-BAD_USDT" not in manager.skipped_reasons
-        finally:
-            settings.normal_symbol_limit, settings.momentum_symbol_limit = old_normal, old_momentum
-            settings.normal_min_24h_turnover_usdt = old_normal_floor
-            settings.momentum_min_24h_turnover_usdt = old_momentum_floor
+        rest.stale.clear()
+        rest.healthy = True
+        manager._quarantined["B-BAD_USDT"]["retry_at"] = time.time() - 1
+        await manager.refresh_universes()
+
+        assert "B-BAD_USDT" not in manager._quarantined
+        assert manager.normal_symbols == ["B-BAD_USDT", "B-BTC_USDT"]
+        assert manager.momentum_symbols == [
+            "B-BAD_USDT", "B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT",
+        ]
 
     asyncio.run(run())
-
 
 def test_stale_market_quarantine_requires_repeated_primary_timeframe_observations():
     from exchange.symbol_manager import SymbolManager
@@ -618,47 +550,26 @@ def test_tp_outcome_is_persisted_only_once_per_target(monkeypatch):
     asyncio.run(run())
 
 
-def test_liquidity_universe_preserves_static_order_when_24h_volume_changes(monkeypatch):
+def test_turnover_changes_never_rank_or_filter_the_fixed_universe():
     import asyncio
     from exchange.symbol_manager import SymbolManager
-    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 1.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 1.0)
-
-    # Both engines retain the configured static order even when live volume changes.
-    monkeypatch.setattr(
-        SymbolManager, "_load_yaml",
-        lambda self, path: ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"],
-    )
 
     class FakeRest:
-        def __init__(self):
-            self.volumes = {"BTC": 300, "ETH": 200, "SOL": 100}
-        async def get_market_details(self):
-            return [
-                {"pair": f"B-{name}_USDT", "base_currency_short_name": "USDT",
-                 "target_currency_short_name": name, "coindcx_name": f"{name}USDT",
-                 "status": "active"}
-                for name in ("BTC", "ETH", "SOL")
-            ]
-        async def get_ticker(self):
-            return [
-                {"market": f"{name}USDT", "base_volume": str(volume), "last_price": "10"}
-                for name, volume in self.volumes.items()
-            ]
+        def get_stale_market_timeframes(self):
+            return {}
 
     async def run():
-        rest = FakeRest()
-        manager = SymbolManager(rest)
-        await manager.load_and_validate()
-        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
-        rest.volumes = {"BTC": 50, "ETH": 500, "SOL": 250}
-        manager._last_liquidity_refresh = 0
+        manager = SymbolManager(FakeRest())
+        manager.valid_pairs = {"B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"}
+        manager._ranked_normal = ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
+        manager._ranked_momentum = list(manager._ranked_normal)
+        manager._select_active_symbols()
+        before = (list(manager.normal_symbols), list(manager.momentum_symbols))
+        # There is deliberately no turnover refresh or turnover ranking path.
         await manager.refresh_universes()
-        assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
-        assert manager.momentum_symbols == ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
+        assert (manager.normal_symbols, manager.momentum_symbols) == before
 
     asyncio.run(run())
-
 
 def test_restore_marks_payload_expired_even_if_db_row_is_recent(tmp_path):
     import asyncio
@@ -704,38 +615,25 @@ def test_restore_marks_payload_expired_even_if_db_row_is_recent(tmp_path):
     asyncio.run(run())
 
 
-def test_liquidity_refresh_retains_previous_universe_when_ticker_aliases_do_not_match():
+def test_ticker_alias_mismatch_cannot_mutate_fixed_symbol_membership():
     import asyncio
     from exchange.symbol_manager import SymbolManager
 
     class FakeRest:
-        def __init__(self):
-            self.rows = [
-                {"market": "BTCUSDT", "volume": "300", "last_price": "10"},
-                {"market": "ETHUSDT", "volume": "200", "last_price": "10"},
-            ]
-        async def get_market_details(self):
-            return [
-                {"pair": f"B-{name}_USDT", "base_currency_short_name": "USDT",
-                 "target_currency_short_name": name, "coindcx_name": f"{name}USDT",
-                 "status": "active"}
-                for name in ("BTC", "ETH")
-            ]
-        async def get_ticker(self):
-            return self.rows
+        def get_stale_market_timeframes(self):
+            return {}
 
     async def run():
-        rest = FakeRest()
-        manager = SymbolManager(rest)
-        await manager.load_and_validate()
+        manager = SymbolManager(FakeRest())
+        manager.valid_pairs = {"B-BTC_USDT", "B-ETH_USDT"}
+        manager._ranked_normal = ["B-BTC_USDT", "B-ETH_USDT"]
+        manager._ranked_momentum = ["B-BTC_USDT", "B-ETH_USDT"]
+        manager._select_active_symbols()
         before = list(manager.normal_symbols)
-        rest.rows = [{"market": "UNRELATEDUSDT", "volume": "999", "last_price": "1"}]
-        manager._last_liquidity_refresh = 0
         await manager.refresh_universes()
         assert manager.normal_symbols == before
 
     asyncio.run(run())
-
 
 def test_scan_loop_waits_for_fresh_boundary_before_first_engine_scan(monkeypatch):
     import asyncio
@@ -845,53 +743,17 @@ def test_candle_buffer_rejects_nonfinite_and_inconsistent_ohlc():
     assert buffer.last_close() == 11.0
 
 
-def test_futures_turnover_estimate_uses_base_volume_times_last_price():
+def test_turnover_is_not_part_of_symbol_manager_selection():
     from exchange.symbol_manager import SymbolManager
 
     manager = SymbolManager(object())
-    values = manager._ticker_liquidity([
-        {"market": "B-ETH_USDT", "base_volume": "25000", "last_price": "3.2"},
-        {"market": "B-LOW_USDT", "v": "100", "ls": "0.5"},
-        # A generic volume without an LTP is not treated as USDT turnover.
-        {"market": "B-UNKNOWN_USDT", "volume": "999999999"},
-    ])
-    assert values["ETHUSDT"] == 80000.0
-    assert values["LOWUSDT"] == 50.0
-    assert "UNKNOWNUSDT" not in values
+    manager.valid_pairs = {"B-BTC_USDT"}
+    manager._ranked_normal = ["B-BTC_USDT"]
+    manager._ranked_momentum = ["B-BTC_USDT"]
+    manager._select_active_symbols()
 
-
-def test_static_universe_fails_closed_when_turnover_data_is_missing(monkeypatch):
-    import asyncio
-    from exchange.symbol_manager import SymbolManager
-
-    monkeypatch.setattr("config.settings.normal_min_24h_turnover_usdt", 1000.0)
-    monkeypatch.setattr("config.settings.momentum_min_24h_turnover_usdt", 500.0)
-    monkeypatch.setattr(
-        SymbolManager, "_load_yaml",
-        lambda self, path: ["B-BTC_USDT"],
-    )
-
-    class FakeRest:
-        async def get_market_details(self):
-            return [{
-                "pair": "B-BTC_USDT", "base_currency_short_name": "USDT",
-                "target_currency_short_name": "BTC", "status": "active",
-            }]
-
-        async def get_ticker(self):
-            return []
-
-    async def run():
-        manager = SymbolManager(FakeRest())
-        await manager.load_and_validate()
-        assert manager.normal_symbols == []
-        assert manager.momentum_symbols == []
-        assert manager.liquidity["B-BTC_USDT"] == 0.0
-        assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
-
-    asyncio.run(run())
-
-
+    assert manager.normal_symbols == ["B-BTC_USDT"]
+    assert manager.momentum_symbols == ["B-BTC_USDT"]
 
 def test_intrabar_momentum_rvol_uses_live_candle_volume(monkeypatch):
     from core.engine import SignalEngine
