@@ -50,7 +50,7 @@ async def test_quarantine_recovery_probes_only_primary_timeframe(monkeypatch):
     class Rest:
         async def get_candles(self, pair, interval, limit=100):
             calls.append((pair, interval, limit))
-            return [{"time": i} for i in range(50)]
+            return [{"time": i} for i in range(300)]
 
         def get_stale_market_timeframes(self):
             return {}
@@ -63,5 +63,5 @@ async def test_quarantine_recovery_probes_only_primary_timeframe(monkeypatch):
     }
     await manager.refresh_universes()
 
-    assert calls == [("B-BTC_USDT", "5m", 100)]
+    assert calls == [("B-BTC_USDT", "5m", 300)]
     assert "B-BTC_USDT" not in manager._quarantined
