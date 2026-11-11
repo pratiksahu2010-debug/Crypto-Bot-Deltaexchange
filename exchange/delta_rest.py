@@ -539,8 +539,10 @@ class DeltaExchangeRest:
                 }
                 vals = [candle[k] for k in ("open","high","low","close","volume")]
                 if not all(math.isfinite(x) for x in vals) or min(vals[:4]) <= 0 or vals[4] < 0:
+                    invalid_row_count += 1
                     continue
                 if candle["high"] < max(candle["open"], candle["close"], candle["low"]) or candle["low"] > min(candle["open"], candle["close"], candle["high"]):
+                    invalid_row_count += 1
                     continue
                 if stamp < start_ms or stamp >= end_ms:
                     continue
