@@ -87,3 +87,27 @@ class SignalDeliveryRecord(Base):
     last_error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive_now, nullable=True, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive_now)
+
+
+class StrategyCandidateRecord(Base):
+    """Persistent, observational outcome tracking for ORB and MEX candidates."""
+    __tablename__ = "strategy_candidates"
+    candidate_key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    pair: Mapped[str] = mapped_column(String(32), index=True)
+    engine: Mapped[str] = mapped_column(String(16), index=True)
+    strategy_family: Mapped[str] = mapped_column(String(8), index=True)
+    strategy: Mapped[str] = mapped_column(String(40), index=True)
+    direction: Mapped[str] = mapped_column(String(8))
+    decision: Mapped[str] = mapped_column(String(16), index=True)
+    stage: Mapped[str] = mapped_column(String(32))
+    candidate_ts: Mapped[int] = mapped_column(BigInteger, index=True)
+    entry_price: Mapped[float] = mapped_column(Float)
+    atr_value: Mapped[float] = mapped_column(Float, default=0.0)
+    latest_price: Mapped[float] = mapped_column(Float)
+    bars_observed: Mapped[int] = mapped_column(Integer, default=0)
+    mfe_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    mae_pct: Mapped[float] = mapped_column(Float, default=0.0)
+    outcome: Mapped[str] = mapped_column(String(24), default="ACTIVE", index=True)
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive_now, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive_now)
