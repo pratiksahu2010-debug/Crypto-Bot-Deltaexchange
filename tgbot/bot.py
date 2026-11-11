@@ -149,7 +149,7 @@ class TelegramBot:
         strategy_key = str(strategy or "").upper()
         if engine == "SIGNALS":
             signal_type = "SEQUENTIAL"
-        elif strategy_key.startswith("ORB_") or (signal.get("indicators") or {}).get("orb_session"):
+        elif strategy_key.startswith("ORB_"):
             signal_type = "ORB"
         elif engine == "NORMAL":
             signal_type = "NORMAL"
@@ -195,7 +195,7 @@ class TelegramBot:
             f"<b>ENGINE:</b> {safe(engine or 'n/a')}",
             f"<b>STRATEGY:</b> {safe(strategy)}",
             *(["<b>ENTRY TYPE:</b> LIVE INTRABAR — early trigger, candle still forming"] if signal.get("entry_type") == "LIVE_INTRABAR" else []),
-            *([f"<b>ORB SESSION:</b> {safe(ind.get('orb_session'))} | <b>LOCAL OPEN:</b> {safe(ind.get('orb_session_open_local'))}"] if ind.get("orb_session") else []),
+            *([f"<b>ORB SESSION:</b> {safe(ind.get('orb_session'))} | <b>LOCAL OPEN:</b> {safe(ind.get('orb_session_open_local'))}"] if strategy_key.startswith("ORB_") and ind.get("orb_session") else []),
             f"<b>SCORE:</b> {safe(score)}/10 — <b>{safe(grade)}</b>",
             "",
         ]
