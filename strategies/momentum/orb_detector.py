@@ -242,6 +242,19 @@ def evaluate(
                 "INVALID_SESSION_RVOL", meta,
                 range_high=range_high, range_low=range_low,
             )
+        # Session RVOL can be inflated by a quiet opening candle. Require an
+        # independent rolling 20-bar participation check as well; this value
+        # is supplied by the engine from completed bars only.
+        rolling_rvol = _finite(rvol)
+        rolling_floor = max(1.20, float(min_rvol) * 0.85)
+        if rolling_rvol is None or rolling_rvol < rolling_floor:
+            return _result(
+                "LOW_ROLLING_RVOL", meta, direction=None,
+                range_high=range_high, range_low=range_low,
+                session_rvol=round(session_rvol, 4),
+                rolling_rvol=rolling_rvol, rolling_rvol_min=rolling_floor,
+                rvol_baseline=round(baseline, 8),
+            )
 
         e9, e21 = ema(close, 9), ema(close, 21)
         rsi_value = rsi(close, 14)
@@ -366,6 +379,8 @@ def evaluate(
             breakout_age_candles=breakout_age,
             range_candles=len(indexes),
             session_rvol=round(session_rvol, 4),
+            rolling_rvol=round(rolling_rvol, 4),
+            rolling_rvol_min=round(rolling_floor, 4),
             rvol_baseline=round(baseline, 8),
             session_vwap=session_vwap,
             indicator_confirmation={
