@@ -12,8 +12,9 @@ def test_second_completed_candle_follow_through_is_not_required():
     assert "second_candle_no_follow_through" not in ENGINE
 
 
-def test_completed_15m_context_is_a_normal_signal_gate_not_a_score_component():
-    assert '"confirm_15m": bool(' in ENGINE
+def test_completed_15m_context_is_diagnostic_not_a_normal_signal_gate():
+    assert 'indicators["context_15m"]' in ENGINE
+    assert 'indicators["confirm_15m"] = bool(' in ENGINE
     assert '"15m EMA Context"' not in SCORING
 
 
