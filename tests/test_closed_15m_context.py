@@ -19,7 +19,7 @@ def _bars(count=78):
 
 
 def test_15m_context_uses_only_complete_three_bar_buckets():
-    bars = _bars(78)  # 25 complete 15m bars plus two bars in a forming bucket
+    bars = _bars(77)  # 25 complete 15m bars plus two bars in a forming bucket
     result = _closed_15m_context_from_5m(bars)
     assert result["available"] is True
     assert result["bars"] == 25
@@ -28,7 +28,7 @@ def test_15m_context_uses_only_complete_three_bar_buckets():
 
 
 def test_15m_context_rejects_missing_constituent_bar():
-    bars = _bars(78)
+    bars = _bars(77)
     # Remove the middle 5m constituent from one 15m bucket.
     for key in bars:
         bars[key] = np.delete(bars[key], 30)
