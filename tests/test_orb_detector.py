@@ -175,3 +175,24 @@ def test_orb_uses_20_bar_volume_baseline_not_one_opening_candle():
     )
     assert result["rvol_baseline"] == 100.0
     assert result["session_rvol"] == 2.2
+
+
+def test_telegram_does_not_label_generic_momentum_as_orb_from_session_metadata():
+    from tgbot.bot import TelegramBot
+
+    bot = TelegramBot()
+    generic = bot.format_signal({
+        "pair": "B-BTC_USDT", "direction": "SHORT", "engine": "momentum",
+        "strategy": "CONTINUATION", "score": 8.5, "grade": "STRONG",
+        "indicators": {"orb_session": "london", "orb_session_open_local": "2026-11-11T08:00:00+00:00"},
+    })
+    assert "<b>SIGNAL TYPE:</b> MOMENTUM EXPLOSION" in generic
+    assert "<b>ORB SESSION:</b>" not in generic
+
+    orb = bot.format_signal({
+        "pair": "B-BTC_USDT", "direction": "SHORT", "engine": "momentum",
+        "strategy": "ORB_BREAKOUT", "score": 8.5, "grade": "STRONG",
+        "indicators": {"orb_session": "london", "orb_session_open_local": "2026-11-11T08:00:00+00:00"},
+    })
+    assert "<b>SIGNAL TYPE:</b> ORB" in orb
+    assert "<b>ORB SESSION:</b> london" in orb
