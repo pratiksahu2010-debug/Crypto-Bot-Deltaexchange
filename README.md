@@ -51,7 +51,7 @@ Normal does not require 15-minute confirmation (15m context is diagnostic only),
 
 - Only the configured primary timeframe is fetched/subscribed for closed-candle signal qualification; production entries use 5m.
 - No second-candle follow-through is required.
-- ATR-based stop-loss and target levels are calculated for the alert. Fees, spread and slippage are not signal rejection gates.
+- Every alert requires a confirmed structural stop: LONG below the latest confirmed swing low; SHORT above the latest confirmed swing high. A 0.15 ATR buffer is placed beyond the swing. Missing/invalid swings or structural risk greater than 3 ATR reject the signal; the bot never substitutes a fixed ATR stop. TP1/TP2/TP3 are 2R/3R/4R from the structural stop. Fees, spread and slippage are not signal rejection gates.
 - Persistent deduplication is global across engines for the same pair, direction and candle, including across process restarts.
 - Telegram uses push-only mode and a durable per-recipient outbox with retry and expiry. Retries cannot extend a signal's original entry-validity window.
 - Signal state, watchlists, pending retests and outcomes are persisted. Production scanning pauses if durable PostgreSQL is unavailable.
