@@ -14,14 +14,14 @@ class MarketData:
         return await self.rest.get_candles(pair, interval, limit=limit)
 
     async def ensure_buffer(self, pair: str, interval: str, min_candles: int = 300) -> bool:
-        buf = self.builder.get_buffer(pair, interval)
-        if len(buf) >= min_candles:
+        completed = self.builder.get_completed_arrays(pair, interval)
+        if len(completed.get("close", [])) >= min_candles:
             return True
         data = await self.rest.get_candles(pair, interval, limit=max(min_candles + 20, 100))
         if data:
             self.builder.seed(pair, interval, data)
-            return len(self.builder.get_buffer(pair, interval)) >= min_candles
+            completed = self.builder.get_completed_arrays(pair, interval)
+            return len(completed.get("close", [])) >= min_candles
         return False
-
     def last_price(self, pair: str, interval: str = "5m") -> Optional[float]:
         return self.builder.get_buffer(pair, interval).last_close()
