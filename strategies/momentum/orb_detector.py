@@ -242,20 +242,6 @@ def evaluate(
                 "INVALID_SESSION_RVOL", meta,
                 range_high=range_high, range_low=range_low,
             )
-        # Session RVOL can be inflated by a quiet opening candle. Require an
-        # independent rolling 20-bar participation check as well; this value
-        # is supplied by the engine from completed bars only.
-        rolling_rvol = _finite(rvol)
-        rolling_floor = max(1.20, float(min_rvol) * 0.85)
-        if rolling_rvol is None or rolling_rvol < rolling_floor:
-            return _result(
-                "LOW_ROLLING_RVOL", meta, direction=None,
-                range_high=range_high, range_low=range_low,
-                session_rvol=round(session_rvol, 4),
-                rolling_rvol=rolling_rvol, rolling_rvol_min=rolling_floor,
-                rvol_baseline=round(baseline, 8),
-            )
-
         e9, e21 = ema(close, 9), ema(close, 21)
         rsi_value = rsi(close, 14)
         macd_now = macd(close)
@@ -338,6 +324,20 @@ def evaluate(
                 session_rvol=round(session_rvol, 4), rvol_baseline=round(baseline, 8),
                 indicator_confirmation={"checks": flags, "passed": passed},
             )
+        # Session RVOL can be inflated by a quiet opening candle. Require an
+        # independent rolling 20-bar participation check as well; this value
+        # is supplied by the engine from completed bars only.
+        rolling_rvol = _finite(rvol)
+        rolling_floor = max(1.20, float(min_rvol) * 0.85)
+        if rolling_rvol is None or rolling_rvol < rolling_floor:
+            return _result(
+                "LOW_ROLLING_RVOL", meta, direction=direction,
+                range_high=range_high, range_low=range_low,
+                session_rvol=round(session_rvol, 4),
+                rolling_rvol=rolling_rvol, rolling_rvol_min=rolling_floor,
+                rvol_baseline=round(baseline, 8),
+            )
+
         # Reject wick-only pokes: close at least 0.05 ATR beyond range and body in direction.
         breakout_buffer = atr_v * 0.05
         body_aligned = arrays["close"][-1] > arrays["open"][-1] if is_long else arrays["close"][-1] < arrays["open"][-1]
