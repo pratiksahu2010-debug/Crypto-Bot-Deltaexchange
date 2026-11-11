@@ -278,6 +278,7 @@ class SymbolManager:
         if not callable(getter):
             for pair in configured:
                 self.ticker_diagnostics[pair] = {
+                    "observed_at_ms": int(time.time() * 1000),
                     "status": "TICKER_CHECK_UNAVAILABLE",
                     "reason": "REST adapter has no ticker method",
                 }
@@ -289,6 +290,7 @@ class SymbolManager:
             reason = f"ticker_request_failed:{type(exc).__name__}:{exc}"
             for pair in configured:
                 self.ticker_diagnostics[pair] = {
+                    "observed_at_ms": int(time.time() * 1000),
                     "status": "TICKER_REQUEST_FAILED", "reason": reason,
                 }
             logger.error("DELTA_TICKER_VALIDATION_FAILED symbols=%s error=%s", len(configured), exc)
@@ -353,6 +355,7 @@ class SymbolManager:
                             "last_price": price,
                         }
 
+            diagnostic["observed_at_ms"] = now_ms
             self.ticker_diagnostics[pair] = diagnostic
             counts[diagnostic["status"]] = counts.get(diagnostic["status"], 0) + 1
             if diagnostic["status"] != "FRESH":
