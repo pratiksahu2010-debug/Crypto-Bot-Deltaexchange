@@ -13,7 +13,7 @@ class MarketData:
     async def get_ohlcv(self, pair: str, interval: str = "5m", limit: int = 100) -> List[dict]:
         return await self.rest.get_candles(pair, interval, limit=limit)
 
-    async def ensure_buffer(self, pair: str, interval: str, min_candles: int = 50) -> bool:
+    async def ensure_buffer(self, pair: str, interval: str, min_candles: int = 300) -> bool:
         buf = self.builder.get_buffer(pair, interval)
         if len(buf) >= min_candles:
             return True
