@@ -77,7 +77,7 @@ def test_opening_range_uses_one_completed_five_minute_candle():
 
 
 def test_london_long_orb_uses_first_completed_five_minute_range():
-    result = evaluate(candles_for("london", "LONG"), 0.8, session="london", min_rvol=1.4, adx_value=25, plus_di=30, minus_di=15)
+    result = evaluate(candles_for("london", "LONG"), 1.6, session="london", min_rvol=1.4, adx_value=25, plus_di=30, minus_di=15)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "LONG"
     assert result["range_end_local"].endswith("08:05:00+01:00")
