@@ -28,14 +28,14 @@ def test_15m_context_uses_only_complete_three_bar_buckets():
 
 
 def test_15m_context_rejects_missing_constituent_bar():
-    bars = _bars(77)
+    bars = _bars(80)
     # Remove the middle 5m constituent from one 15m bucket.
     for key in bars:
         bars[key] = np.delete(bars[key], 30)
     result = _closed_15m_context_from_5m(bars)
     assert result["available"] is True
-    assert result["bars"] == 24
-    assert result["close"] == bars["close"][73]
+    assert result["bars"] == 25
+    assert result["close"] == bars["close"][76]
 
 
 def test_15m_context_fails_closed_when_history_is_insufficient():
