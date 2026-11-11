@@ -392,7 +392,7 @@ class SignalEngine:
             try:
                 price = float(candle["close"])
                 for (p, _d, _strategy), ext in self._live_post_entry.items():
-                    if p == pair and _d == _d:
+                    if p == pair:
                         ext[0], ext[1] = max(ext[0], price), min(ext[1], price)
             except (KeyError, TypeError, ValueError):
                 pass
