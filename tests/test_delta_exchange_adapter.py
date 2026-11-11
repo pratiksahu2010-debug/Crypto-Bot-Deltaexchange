@@ -181,73 +181,6 @@ def test_delta_ws_candlestick_maps_product_to_canonical_pair_and_updates_ltp(mon
 
 
 
-def test_delta_liquidity_uses_explicit_usd_turnover_not_contract_volume():
-    from exchange.symbol_manager import SymbolManager
-
-    now = int(time.time())
-    rows = [{
-        "market": "B-BTC_USDT", "pair": "B-BTC_USDT", "symbol": "BTCUSD",
-        "timestamp": now, "turnover_usd": 1_250_000,
-        "quote_volume": 1_250_000, "base_volume": 0.001, "last_price": 65000,
-    }]
-    manager = SymbolManager(type("RestStub", (), {})())
-    values = manager._ticker_liquidity(rows)
-    assert values["BTCUSDT"] == 1_250_000
-    assert values["BTCUSD"] == 1_250_000
-
-def test_delta_liquidity_does_not_infer_usd_turnover_from_contract_volume():
-    from exchange.symbol_manager import SymbolManager
-
-    rows = [{
-        "market": "B-BTC_USDT", "pair": "B-BTC_USDT",
-        "symbol": "BTCUSD", "delta_symbol": "BTCUSD",
-        "contract_type": "perpetual_futures",
-        "timestamp": int(time.time()), "turnover_usd": 0,
-        "quote_volume": 0, "base_volume": 100,
-        "last_price": 65000,
-    }]
-    manager = SymbolManager(type("RestStub", (), {})())
-    assert manager._ticker_liquidity(rows) == {}
-
-
-
-@pytest.mark.asyncio
-async def test_symbol_manager_accepts_delta_usd_perpetual_under_internal_strategy_key(monkeypatch):
-    from exchange.symbol_manager import SymbolManager
-
-    class RestStub:
-        MAX_REST_TICKER_AGE_SECONDS = 15.0
-        _ticker_age_seconds = staticmethod(DeltaExchangeRest._ticker_age_seconds)
-        _is_fresh_ticker_age = staticmethod(DeltaExchangeRest._is_fresh_ticker_age)
-
-        async def get_market_details(self):
-            return [{
-                "pair": "B-BTC_USDT", "symbol": "BTCUSD",
-                "base_currency_short_name": "USD",
-                "target_currency_short_name": "BTC",
-                "status": "active", "quote_currency": "USD",
-            }]
-
-        async def get_ticker(self):
-            # A market with no usable turnover is deliberately ineligible.
-            return [{
-                "market": "B-BTC_USDT", "pair": "B-BTC_USDT",
-                "symbol": "BTCUSD", "timestamp": int(time.time()),
-                "quote_volume": 0, "turnover_usd": 0,
-            }]
-
-    manager = SymbolManager(RestStub())
-    monkeypatch.setattr(manager, "_load_yaml", lambda path: ["B-BTC_USDT"])
-    await manager.load_and_validate()
-
-    assert manager.valid_pairs == {"B-BTC_USDT"}
-    assert manager.normal_symbols == []
-    assert manager.momentum_symbols == []
-    assert manager.whitelist_diagnostics["BTCUSDT"]["status"] == "LIQUIDITY_UNKNOWN"
-    assert manager.display_name("B-BTC_USDT") == "BTC/USD"
-
-
-
 def test_fixed_symbol_allowlists_have_requested_sizes_and_normal_is_subset():
     from pathlib import Path
     import yaml
@@ -266,11 +199,18 @@ def test_fixed_symbol_allowlists_have_requested_sizes_and_normal_is_subset():
 
 
 @pytest.mark.asyncio
-async def test_symbol_manager_enforces_configured_universe_limits(monkeypatch):
+async def test_symbol_manager_keeps_all_fixed_symbols_without_turnover_caps(monkeypatch):
     from config import settings
     from exchange.symbol_manager import SymbolManager
 
+    normal = [f"B-COIN{i}_USDT" for i in range(40)]
+    momentum = [f"B-COIN{i}_USDT" for i in range(100)]
+    assets = [f"COIN{i}" for i in range(100)]
+
     class RestStub:
+        MAX_REST_TICKER_AGE_SECONDS = 15.0
+        _ticker_age_seconds = staticmethod(DeltaExchangeRest._ticker_age_seconds)
+
         async def get_market_details(self):
             return [
                 {
@@ -278,23 +218,57 @@ async def test_symbol_manager_enforces_configured_universe_limits(monkeypatch):
                     "target_currency_short_name": asset, "status": "active",
                     "quote_currency": "USD",
                 }
-                for asset in ("BTC", "ETH", "SOL")
+                for asset in assets
             ]
 
         async def get_ticker(self):
             return [
-                {"market": "B-BTC_USDT", "turnover_usd": 2_000_000},
-                {"market": "B-ETH_USDT", "turnover_usd": 1_500_000},
-                {"market": "B-SOL_USDT", "turnover_usd": 1_200_000},
+                {
+                    "pair": f"B-{asset}_USDT", "symbol": f"{asset}USD",
+                    "timestamp": int(time.time()), "last_price": 1.0,
+                }
+                for asset in assets
             ]
 
     manager = SymbolManager(RestStub())
-    configured = ["B-BTC_USDT", "B-ETH_USDT", "B-SOL_USDT"]
-    monkeypatch.setattr(manager, "_load_yaml", lambda _path: configured)
+    monkeypatch.setattr(
+        manager, "_load_yaml",
+        lambda path: normal if "normal_symbols" in path else momentum,
+    )
     monkeypatch.setattr(settings, "normal_symbol_limit", 2)
     monkeypatch.setattr(settings, "momentum_symbol_limit", 3)
 
     await manager.load_and_validate()
 
-    assert manager.normal_symbols == ["B-BTC_USDT", "B-ETH_USDT"]
-    assert manager.momentum_symbols == configured
+    assert manager.normal_symbols == normal
+    assert manager.momentum_symbols == momentum
+    assert all(
+        manager.ticker_diagnostics[pair]["status"] == "FRESH"
+        for pair in momentum
+    )
+
+
+@pytest.mark.asyncio
+async def test_ticker_diagnostics_report_missing_and_stale_symbols():
+    from exchange.symbol_manager import SymbolManager
+
+    class RestStub:
+        MAX_REST_TICKER_AGE_SECONDS = 15.0
+        _ticker_age_seconds = staticmethod(DeltaExchangeRest._ticker_age_seconds)
+
+        async def get_ticker(self):
+            return [
+                {
+                    "pair": "B-BTC_USDT", "last_price": 65000,
+                    "timestamp": int(time.time()) - 120,
+                }
+            ]
+
+    manager = SymbolManager(RestStub())
+    manager.valid_pairs = {"B-BTC_USDT", "B-ETH_USDT"}
+    await manager._validate_configured_tickers(
+        ["B-BTC_USDT", "B-ETH_USDT"], []
+    )
+
+    assert manager.ticker_diagnostics["B-BTC_USDT"]["status"] == "TICKER_STALE"
+    assert manager.ticker_diagnostics["B-ETH_USDT"]["status"] == "TICKER_MISSING"
