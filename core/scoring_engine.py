@@ -8,7 +8,7 @@ _NUMERIC_BOUNDS = {
     "ema9": (0.0, None), "ema21": (0.0, None),
     "close": (0.0, None), "vwap": (0.0, None), "orb_vwap": (0.0, None), "atr": (0.0, None),
     "adx": (0.0, 100.0), "rsi": (0.0, 100.0), "rsi_prev": (0.0, 100.0),
-    "rvol": (0.0, None), "atr_pct": (0.0, None),
+    "rvol": (0.0, None), "orb_session_rvol": (0.0, None), "atr_pct": (0.0, None),
     "body_ratio": (0.0, 1.0), "atr_expansion": (0.0, None),
     "close_location": (0.0, 1.0),
     "orb_breakout_extension_atr": (0.0, None),
@@ -221,8 +221,11 @@ class ScoringEngine:
         total = round(sum(item.points for item in components), 2)
         return ScoreResult(total=total, components=components, direction=direction)
 
-    def score_orb(self, indicators: Dict[str, Any], direction: str) -> ScoreResult:
-        """Score ORB from indicator alignment and distance to its session edge."""
+    def score_orb(
+        self, indicators: Dict[str, Any], direction: str,
+        min_rvol: float = 1.10, max_extension_atr: float = 0.80,
+    ) -> ScoreResult:
+        """Score an ORB using the same session-specific limits as its detector."""
         _validate_direction(direction)
         values = _validated_indicators(indicators)
         is_long = direction == "LONG"
@@ -232,10 +235,16 @@ class ScoringEngine:
             components.append(ScoreComponent(name, float(points), float(maximum),
                 value, direction, explanation, float(points) > 0))
 
-        rvol = values.get("rvol")
-        volume_ok = rvol is not None and rvol >= 1.10
-        add("ORB Relative Volume", 1.5 if volume_ok else 0.0, 1.5, rvol,
-            "Session volume expanding" if volume_ok else "Relative volume below 1.10")
+        # General rolling RVOL is not an ORB qualification input.
+        rvol = values.get("orb_session_rvol")
+        try:
+            rvol_floor = float(min_rvol)
+        except (TypeError, ValueError, OverflowError):
+            rvol_floor = 1.10
+        volume_ok = rvol is not None and math.isfinite(rvol_floor) and rvol >= rvol_floor
+        add("ORB Session RVOL", 1.5 if volume_ok else 0.0, 1.5, rvol,
+            f"Session RVOL meets {rvol_floor:.2f} minimum" if volume_ok
+            else f"Session RVOL below {rvol_floor:.2f}")
 
         e9, e21 = values.get("ema9"), values.get("ema21")
         ema_ok = e9 is not None and e21 is not None and (e9 > e21 if is_long else e9 < e21)
@@ -267,12 +276,17 @@ class ScoringEngine:
             "ATR available" if atr_ok else "ATR unavailable")
 
         distance = values.get("orb_breakout_extension_atr")
-        distance_ok = distance is not None and distance <= 0.35
-        add("ORB Edge Proximity", 1.0 if distance_ok else 0.0, 1.0, distance,
-            "Price pressing opening-range edge" if distance_ok else "Price away from range edge")
+        try:
+            extension_limit = float(max_extension_atr)
+        except (TypeError, ValueError, OverflowError):
+            extension_limit = 0.80
+        distance_ok = distance is not None and math.isfinite(extension_limit) and distance <= extension_limit
+        add("ORB Breakout Extension", 1.0 if distance_ok else 0.0, 1.0, distance,
+            f"Extension within {extension_limit:.2f} ATR qualification limit"
+            if distance_ok else f"Extension exceeds {extension_limit:.2f} ATR")
 
         total = round(sum(item.points for item in components), 2)
-        return ScoreResult(total=total, components=components, direction=direction)
+        return ScoreResult(total=total, max_total=10.0, components=components, direction=direction)
 
     def score_momentum(self, indicators: Dict[str, Any], direction: str) -> ScoreResult:
         """Score trend continuation from independent indicator families."""
