@@ -50,7 +50,7 @@ def candles_for(session="london", direction="LONG", last_open_minute=30):
         if direction == "LONG":
             open_[last], high[last], low[last], close[last] = 101.2, 102.2, 101.1, 102.0
         else:
-            open_[last], high[last], low[last], close[last] = 99.8, 99.9, 98.0, 98.2
+            open_[last], high[last], low[last], close[last] = 99.2, 99.3, 98.8, 98.9
         volume[last] = 220.0
 
     return {
