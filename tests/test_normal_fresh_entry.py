@@ -230,7 +230,7 @@ def test_normal_engine_enforces_adx_floor_of_25_even_if_configured_lower():
         "rsi": 55.0, "adx": 24.99, "atr": 0.5, "confirm_15m": True,
     }
     assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_25"] is False
-    assert _normal_threshold_gates({**indicators, "adx": 20.0}, "LONG", 20.0)["adx_min_20"] is True
+    assert _normal_threshold_gates({**indicators, "adx": 25.0}, "LONG", 25.0)["adx_min_25"] is True
 
 
 def test_15m_context_uses_only_complete_three_bar_groups():
