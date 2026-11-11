@@ -1,4 +1,6 @@
 """Entry-state and gross ATR risk tests."""
+import pytest
+
 from core.risk_calculator import calculate_risk, classify_entry_state
 
 
@@ -16,9 +18,9 @@ def test_risk_levels_report_gross_reward_risk_without_fee_adjustments():
     assert risk.rr2 == 3.0
     assert risk.rr3 == 4.0
     distance = risk.entry - risk.stop_loss
-    assert risk.tp1 == risk.entry + 2.0 * distance
-    assert risk.tp2 == risk.entry + 3.0 * distance
-    assert risk.tp3 == risk.entry + 4.0 * distance
+    assert risk.tp1 == pytest.approx(risk.entry + 2.0 * distance)
+    assert risk.tp2 == pytest.approx(risk.entry + 3.0 * distance)
+    assert risk.tp3 == pytest.approx(risk.entry + 4.0 * distance)
 
 
 def test_configured_reward_multipliers_are_applied_as_r_multiples():
@@ -55,6 +57,6 @@ def test_short_risk_levels_use_the_same_gross_reward_multipliers():
     assert risk.rr2 == 3.0
     assert risk.rr3 == 4.0
     distance = risk.stop_loss - risk.entry
-    assert risk.tp1 == risk.entry - 2.0 * distance
-    assert risk.tp2 == risk.entry - 3.0 * distance
-    assert risk.tp3 == risk.entry - 4.0 * distance
+    assert risk.tp1 == pytest.approx(risk.entry - 2.0 * distance)
+    assert risk.tp2 == pytest.approx(risk.entry - 3.0 * distance)
+    assert risk.tp3 == pytest.approx(risk.entry - 4.0 * distance)
