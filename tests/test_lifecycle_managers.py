@@ -69,3 +69,50 @@ def test_engine_persists_signal_capacity_evictions(monkeypatch):
         assert updated == [("B-LOW_USDT", "evicted")]
 
     asyncio.run(run())
+
+
+def test_tp1_hit_allows_later_candle_reentry_and_tracks_both_signals():
+    manager = SignalManager()
+    first = {
+        "pair": "B-BTC_USDT", "engine": "momentum", "direction": "LONG",
+        "score": 8.5, "candle_time_ms": 1_800_000_000_000,
+    }
+    second = {
+        "pair": "B-BTC_USDT", "engine": "momentum", "direction": "LONG",
+        "score": 9.0, "candle_time_ms": 1_800_000_300_000,
+    }
+    assert manager.add(first)
+    first_id = manager.get("B-BTC_USDT", "momentum", "LONG")["signal_id"]
+    assert not manager.add({**first, "score": 9.5})
+    assert not manager.add(second)
+    assert manager.mark_tp("B-BTC_USDT", "momentum", "LONG", 1, first_id)
+    assert manager.add(second)
+    active = manager.list_active("momentum")
+    assert len(active) == 2
+    assert manager.get("B-BTC_USDT", "momentum", "LONG", first_id)["tp1_hit"] is True
+    assert manager.get("B-BTC_USDT", "momentum", "LONG")["candle_time_ms"] == second["candle_time_ms"]
+
+
+def test_tp1_does_not_allow_same_or_older_candle_reentry():
+    manager = SignalManager()
+    first = {
+        "pair": "B-ETH_USDT", "engine": "normal", "direction": "SHORT",
+        "candle_time_ms": 1_800_000_000_000,
+    }
+    assert manager.add(first)
+    first_id = manager.get("B-ETH_USDT", "normal", "SHORT")["signal_id"]
+    assert manager.mark_tp("B-ETH_USDT", "normal", "SHORT", 1, first_id)
+    assert not manager.add({**first, "score": 10})
+    assert not manager.add({**first, "candle_time_ms": 1_799_999_700_000})
+
+
+def test_signal_manager_blocks_new_setup_until_previous_tp1():
+    manager = SignalManager()
+    first = {
+        "pair": "B-SOL_USDT", "engine": "normal", "direction": "LONG",
+        "candle_time_ms": 1_800_000_000_000,
+    }
+    second = {**first, "candle_time_ms": 1_800_000_300_000}
+    assert manager.add(first)
+    assert not manager.add(second)
+    assert len(manager.list_active()) == 1
