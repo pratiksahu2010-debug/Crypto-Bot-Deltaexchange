@@ -87,7 +87,7 @@ def test_london_long_orb_uses_first_completed_five_minute_range():
 
 
 def test_new_york_short_orb_is_directionally_mirrored():
-    result = evaluate(candles_for("new_york", "SHORT"), 0.8, session="new_york", min_rvol=1.4, adx_value=25, plus_di=12, minus_di=28)
+    result = evaluate(candles_for("new_york", "SHORT"), 1.2, session="new_york", min_rvol=1.4, adx_value=25, plus_di=12, minus_di=28)
     assert result["state"] == "ORB_BREAKOUT", result
     assert result["direction"] == "SHORT"
     assert result["range_end_local"].endswith("09:35:00-04:00")
