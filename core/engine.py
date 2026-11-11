@@ -391,8 +391,8 @@ class SignalEngine:
             # Track post-entry extremes for live signals (outcome bookkeeping).
             try:
                 price = float(candle["close"])
-                for (p, _d), ext in self._live_post_entry.items():
-                    if p == pair:
+                for (p, _d, _strategy), ext in self._live_post_entry.items():
+                    if p == pair and _d == _d:
                         ext[0], ext[1] = max(ext[0], price), min(ext[1], price)
             except (KeyError, TypeError, ValueError):
                 pass
@@ -584,7 +584,7 @@ class SignalEngine:
         self.cooldowns[engine].set(pair, engine, direction, strategy=res.get("strategy"))
         self._live_emitted.append(time.time())
         self.live_stats["emitted"] += 1
-        self._live_post_entry[(pair, direction)] = [risk.entry, risk.entry]
+        self._live_post_entry[(pair, direction, res.get("strategy"))] = [risk.entry, risk.entry]
         if orb:
             self._live.orb_fired.add((pair, res["session"], res["session_date"], direction))
         logger.info(
@@ -2040,7 +2040,9 @@ class SignalEngine:
             ):
                 # Entry candle of a live signal: its high/low include price action
                 # BEFORE entry. Use only the post-entry extremes seen on the feed.
-                ext = getattr(self, "_live_post_entry", {}).pop((pair, direction), None)
+                ext = getattr(self, "_live_post_entry", {}).pop(
+                    (pair, direction, sig.get("strategy")), None
+                )
                 if not ext:
                     continue
                 high, low = ext[0], ext[1]
