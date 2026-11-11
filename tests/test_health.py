@@ -412,3 +412,44 @@ async def test_metrics_includes_telegram_outbox_queue(monkeypatch):
     assert resp.json()["telegram_outbox_queue"] == {
         "pending": 2, "retry": 1, "total": 3
     }
+
+@pytest.mark.asyncio
+async def test_performance_endpoint_reports_strategy_outcomes_and_clamps_window(monkeypatch):
+    from database import repositories
+
+    captured = {}
+
+    async def fake_report(days):
+        captured["days"] = days
+        return {
+            "available": True,
+            "groups": {
+                "momentum:EXPLOSION": {
+                    "count": 12, "tp1_rate": 0.66, "tp2_rate": 0.33,
+                    "tp3_rate": 0.08, "stop_rate": 0.25,
+                    "false_breakout_rate": 0.08,
+                    "avg_mfe_pct": 1.2, "avg_mae_pct": -0.5,
+                    "avg_signal_age_seconds": 18.0, "active": 2,
+                },
+                "momentum:ORB_BREAKOUT": {
+                    "count": 8, "tp1_rate": 0.625, "tp2_rate": 0.25,
+                    "tp3_rate": 0.0, "stop_rate": 0.25,
+                    "false_breakout_rate": 0.125,
+                    "avg_mfe_pct": 0.9, "avg_mae_pct": -0.4,
+                    "avg_signal_age_seconds": 21.0, "active": 1,
+                },
+            },
+        }
+
+    monkeypatch.setattr(repositories, "signal_performance_report", fake_report)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/performance?days=999")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert captured["days"] == 365
+    assert data["window_days"] == 365
+    assert data["scope"] == "delivered_signals_only"
+    assert data["groups"]["momentum:EXPLOSION"]["count"] == 12
+    assert data["groups"]["momentum:ORB_BREAKOUT"]["false_breakout_rate"] == 0.125
+
