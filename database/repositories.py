@@ -165,7 +165,10 @@ async def claim_signal_once(signal: dict, candle_time_ms: int, ttl_hours: int = 
         )
         ttl_hours = max(48, int(ttl_hours))
     else:
-        key = (\n            f"{signal.get('engine', 'unknown')}:{signal.get('strategy', 'unknown')}:"\n            f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"\n        )
+        key = (
+            f"{signal.get('engine', 'unknown')}:{signal.get('strategy', 'unknown')}:"
+            f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+        )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expires = now + timedelta(hours=max(1, int(ttl_hours)))
     values = dict(dedup_key=key, candle_time_ms=int(candle_time_ms),
@@ -417,7 +420,10 @@ async def release_signal_claim(signal: dict, candle_time_ms: int) -> bool:
     key = (
         f"ORB:{signal['pair']}:{indicators['orb_session']}:"
         f"{indicators['orb_session_open_local']}:{signal['direction']}"
-        if is_orb else (\n            f"{signal.get('engine', 'unknown')}:{signal.get('strategy', 'unknown')}:"\n            f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"\n        )
+        if is_orb else (
+            f"{signal.get('engine', 'unknown')}:{signal.get('strategy', 'unknown')}:"
+            f"{signal['pair']}:{signal['direction']}:{int(candle_time_ms)}"
+        )
     )
     async with factory() as session:
         try:
