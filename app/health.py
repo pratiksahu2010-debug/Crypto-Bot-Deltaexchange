@@ -357,20 +357,23 @@ async def health(request: Request):
     }
 
 
-@router.api_route("/ping", methods=["GET", "HEAD"], response_class=Response)
-async def ping() -> Response:
+@router.api_route("/ping", methods=["GET", "HEAD"])
+async def ping() -> Dict[str, Any]:
     """
-    No-op process liveness probe.
+    Lightweight process liveness probe for Render and external keep-alive checks.
 
-    Deliberately does not inspect application state, touch the database,
-    call the exchange, scan markets, or send Telegram messages. Always returns
-    an empty HTTP 204 response for GET and HEAD keep-alive requests.
+    Returns visible JSON without touching the database, exchange, scanner,
+    WebSocket, or Telegram delivery pipeline.
     """
-    return Response(
-        content=b"",
-        status_code=204,
-        headers={"Cache-Control": "no-store"},
-    )
+    return {
+        "ok": True,
+        "status": "alive",
+        "service": "delta-india-signal-bot",
+        "version": "3.0",
+        "timestamp": utc_iso(),
+        "signal_only": True,
+        "orders_enabled": False,
+    }
 
 
 @router.get("/status")
