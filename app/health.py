@@ -357,23 +357,14 @@ async def health(request: Request):
     }
 
 
-@router.api_route("/ping", methods=["GET", "HEAD"])
-async def ping() -> Dict[str, Any]:
+@router.api_route("/ping", methods=["GET", "HEAD"], status_code=204)
+async def ping() -> Response:
     """
-    Lightweight process liveness probe for Render and external keep-alive checks.
+    Empty, dependency-free process liveness probe for Render keep-alive checks.
 
-    Returns visible JSON without touching the database, exchange, scanner,
-    WebSocket, or Telegram delivery pipeline.
+    Does not touch the database, exchange, scanner, WebSocket, or Telegram.
     """
-    return {
-        "ok": True,
-        "status": "alive",
-        "service": "delta-india-signal-bot",
-        "version": "3.0",
-        "timestamp": utc_iso(),
-        "signal_only": True,
-        "orders_enabled": False,
-    }
+    return Response(status_code=204)
 
 
 @router.get("/status")
