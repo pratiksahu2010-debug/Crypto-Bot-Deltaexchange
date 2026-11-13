@@ -1098,13 +1098,12 @@ class SignalEngine:
             self.candles.seed(pair, primary, data)
             arr = self.candles.get_completed_arrays(pair, primary)
 
-        # WebSocket updates are forming-candle snapshots and the handler
-        # intentionally drops updates after the candle closes. Before treating
-        # an elapsed WS row as a completed bar, refresh the latest few bars from
-        # REST so indicators use Delta's finalized OHLCV rather than the last
-        # intrabar snapshot. CandleBuilder.seed merges these rows into the
-        # existing 300-bar history and preserves any newer forming WS candle.
-        if settings.enable_websocket and not need_backfill:
+        # Always refresh the latest completed bars from REST, including in
+        # REST-only mode. WebSocket updates are forming-candle snapshots and the
+        # handler intentionally drops updates after the candle closes; Delta REST
+        # supplies authoritative finalized OHLCV. CandleBuilder.seed merges these
+        # rows into the existing history and preserves any newer forming WS candle.
+        if not need_backfill:
             try:
                 finalized = await self.rest.get_candles(pair, primary, limit=3)
             except Exception as exc:
