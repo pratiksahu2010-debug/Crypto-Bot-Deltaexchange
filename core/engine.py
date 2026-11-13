@@ -1114,7 +1114,7 @@ class SignalEngine:
                     pair, primary,
                 )
                 return
-            self.candles.seed(pair, primary, finalized)
+            self.candles.seed(pair, primary, finalized, preserve_history=True)
             arr = self.candles.get_completed_arrays(pair, primary)
 
         completed_count = len(arr.get("close", [])) if arr else 0
