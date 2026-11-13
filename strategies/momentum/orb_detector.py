@@ -20,13 +20,13 @@ from indicators.roc import roc
 
 
 # Trade window starts after the first completed 5-minute opening candle.
-# Asia: 00:00-00:05 UTC range, then trade for four hours.
+# Asia: 00:00-00:05 UTC range, then trade until 04:30 UTC.
 # London/NY: 5-minute range followed by four hours of trading.
 # Late US: optional 5-minute range followed by three hours of trading.
 SESSIONS = {
     "asia": {
         "timezone": "UTC", "open": time(0, 0),
-        "range_minutes": 5, "trade_minutes": 240,
+        "range_minutes": 5, "trade_minutes": 265,
     },
     "sydney": {
         "timezone": "Australia/Sydney", "open": time(10, 0),
