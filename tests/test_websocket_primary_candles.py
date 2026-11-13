@@ -185,7 +185,7 @@ def test_partial_rest_refresh_replaces_ws_close_and_preserves_history_and_newer_
     builder.seed("B-BTC_USDT", "5m", [
         _candle(2 * duration, 102.25),
         _candle(3 * duration, 103.25),
-    ])
+    ], preserve_history=True)
 
     arrays = builder.get_arrays("B-BTC_USDT", "5m")
     assert arrays["time"].tolist() == [0, duration, 2 * duration, 3 * duration, 4 * duration]
