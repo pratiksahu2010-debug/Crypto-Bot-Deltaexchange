@@ -1013,31 +1013,36 @@ class SignalEngine:
         primary = settings.candle_primary_tf
         app_state = getattr(getattr(self, "_app", None), "state", None)
         websocket = getattr(app_state, "websocket", None)
-        if settings.enable_websocket and (websocket is None or not websocket.connected):
-            logger.info(
-                "MARKET_DATA_SKIP pair=%s engine=%s reason=websocket_not_connected",
-                pair, engine,
-            )
-            return
         interval_seconds = parse_interval(primary).total_seconds()
         if settings.enable_websocket:
-            feed_ages = getattr(websocket, "symbol_feed_age_seconds", {}) or {}
-            pair_ages = feed_ages.get(pair, {}) if isinstance(feed_ages, dict) else {}
-            feed_age = pair_ages.get(primary) if isinstance(pair_ages, dict) else None
-            max_feed_age = (
-                interval_seconds + max_signal_age
-                + max(0, settings.candle_close_grace_seconds)
-            )
-            try:
-                feed_age = float(feed_age)
-            except (TypeError, ValueError, OverflowError):
-                feed_age = float("inf")
-            if not np.isfinite(feed_age) or feed_age > max_feed_age:
-                logger.info(
-                    "MARKET_DATA_SKIP pair=%s engine=%s reason=symbol_websocket_feed_stale age=%s max_age=%.1f",
-                    pair, engine, feed_age, max_feed_age,
+            # WebSocket is an intrabar accelerator, not a prerequisite for
+            # evaluating exchange-finalized candles. If the stream is absent,
+            # disconnected, or stale for this symbol, continue through the REST
+            # history/closed-candle refresh path below.
+            if websocket is None or not websocket.connected:
+                logger.warning(
+                    "WEBSOCKET_FEED_UNAVAILABLE pair=%s engine=%s "
+                    "action=rest_closed_candle_fallback",
+                    pair, engine,
                 )
-                return
+            else:
+                feed_ages = getattr(websocket, "symbol_feed_age_seconds", {}) or {}
+                pair_ages = feed_ages.get(pair, {}) if isinstance(feed_ages, dict) else {}
+                feed_age = pair_ages.get(primary) if isinstance(pair_ages, dict) else None
+                max_feed_age = (
+                    interval_seconds + max_signal_age
+                    + max(0, settings.candle_close_grace_seconds)
+                )
+                try:
+                    feed_age = float(feed_age)
+                except (TypeError, ValueError, OverflowError):
+                    feed_age = float("inf")
+                if not np.isfinite(feed_age) or feed_age > max_feed_age:
+                    logger.warning(
+                        "WEBSOCKET_SYMBOL_FEED_STALE pair=%s engine=%s age=%s "
+                        "max_age=%.1f action=rest_closed_candle_fallback",
+                        pair, engine, feed_age, max_feed_age,
+                    )
 
         arr = self.candles.get_completed_arrays(pair, primary)
         interval_ms = int(interval_seconds * 1000)
