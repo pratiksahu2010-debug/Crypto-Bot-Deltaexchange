@@ -88,7 +88,9 @@ class CandleBuilder:
             )
         return self.buffers[pair][tf]
 
-    def seed(self, pair: str, tf: str, candles: List[dict]) -> None:
+    def seed(
+        self, pair: str, tf: str, candles: List[dict], *, preserve_history: bool = False
+    ) -> None:
         buf = self.get_buffer(pair, tf)
         # Build and validate the replacement off to the side. A malformed or
         # empty REST response must never erase a previously usable live buffer.
@@ -107,15 +109,23 @@ class CandleBuilder:
                 f"received={len(candles)} reason=no_valid_candles"
             )
             return
-        # Merge the REST history with newer WebSocket updates. REST repairs
-        # historical gaps, while a forming candle already received from WS
-        # must not be discarded by a concurrent warm-up/backfill request.
-        merged = {int(c["time"]): dict(c) for c in staged.candles}
-        rest_latest_ts = max(merged)
-        for existing in buf.candles:
-            ts = int(existing["time"])
-            if ts > rest_latest_ts:
-                merged[ts] = dict(existing)
+        # Preserve the established seed contract by default: a normal REST
+        # backfill replaces older rows, but retains any newer WS candle that
+        # arrived while the request was in flight. Short finalization refreshes
+        # opt into preserve_history so they update overlapping rows without
+        # discarding the older indicator warm-up history.
+        merged = (
+            {int(c["time"]): dict(c) for c in buf.candles}
+            if preserve_history else {}
+        )
+        rest_latest_ts = max(int(c["time"]) for c in staged.candles)
+        if not preserve_history:
+            for existing in buf.candles:
+                ts = int(existing["time"])
+                if ts > rest_latest_ts:
+                    merged[ts] = dict(existing)
+        for candle in staged.candles:
+            merged[int(candle["time"])] = dict(candle)
         replacement = CandleBuffer(buf.max_len)
         for ts in sorted(merged):
             replacement.update(merged[ts])

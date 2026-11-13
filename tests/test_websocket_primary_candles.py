@@ -169,3 +169,24 @@ def test_market_data_warmup_counts_completed_bars_not_forming_bar(monkeypatch):
     assert asyncio.run(market_data.ensure_buffer("B-BTC_USDT", "5m"))
     completed = builder.get_completed_arrays("B-BTC_USDT", "5m")
     assert len(completed["close"]) == 300
+
+
+def test_partial_rest_refresh_replaces_ws_close_and_preserves_history_and_newer_forming_bar():
+    builder = CandleBuilder()
+    duration = 300_000
+    builder.seed("B-BTC_USDT", "5m", [
+        _candle(i * duration, 100 + i) for i in range(4)
+    ])
+    # The current candle is newer than the short REST refresh window.
+    builder.on_candle("B-BTC_USDT", "5m", _candle(4 * duration, 200))
+
+    # REST finalizes the two most recent completed candles. Its overlapping
+    # values must replace the earlier WS snapshots without dropping old bars.
+    builder.seed("B-BTC_USDT", "5m", [
+        _candle(2 * duration, 102.25),
+        _candle(3 * duration, 103.25),
+    ], preserve_history=True)
+
+    arrays = builder.get_arrays("B-BTC_USDT", "5m")
+    assert arrays["time"].tolist() == [0, duration, 2 * duration, 3 * duration, 4 * duration]
+    assert arrays["close"].tolist() == [100.0, 101.0, 102.25, 103.25, 200.0]

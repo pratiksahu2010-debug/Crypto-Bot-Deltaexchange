@@ -1093,6 +1093,30 @@ class SignalEngine:
             self.candles.seed(pair, primary, data)
             arr = self.candles.get_completed_arrays(pair, primary)
 
+        # WebSocket updates are forming-candle snapshots and the handler
+        # intentionally drops updates after the candle closes. Before treating
+        # an elapsed WS row as a completed bar, refresh the latest few bars from
+        # REST so indicators use Delta's finalized OHLCV rather than the last
+        # intrabar snapshot. CandleBuilder.seed merges these rows into the
+        # existing 300-bar history and preserves any newer forming WS candle.
+        if settings.enable_websocket and not need_backfill:
+            try:
+                finalized = await self.rest.get_candles(pair, primary, limit=3)
+            except Exception as exc:
+                logger.warning(
+                    "MARKET_DATA_FINAL_CANDLE_REFRESH_FAILED pair=%s tf=%s error=%s",
+                    pair, primary, exc,
+                )
+                return
+            if not finalized:
+                logger.warning(
+                    "MARKET_DATA_SKIP pair=%s tf=%s reason=finalized_candle_refresh_empty",
+                    pair, primary,
+                )
+                return
+            self.candles.seed(pair, primary, finalized, preserve_history=True)
+            arr = self.candles.get_completed_arrays(pair, primary)
+
         completed_count = len(arr.get("close", [])) if arr else 0
         recorder = getattr(self.rest, "record_completed_history_count", None)
         if callable(recorder):
