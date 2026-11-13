@@ -110,12 +110,12 @@ class CandleBuilder:
         # Merge the REST history with newer WebSocket updates. REST repairs
         # historical gaps, while a forming candle already received from WS
         # must not be discarded by a concurrent warm-up/backfill request.
-        merged = {int(c["time"]): dict(c) for c in staged.candles}
-        rest_latest_ts = max(merged)
-        for existing in buf.candles:
-            ts = int(existing["time"])
-            if ts > rest_latest_ts:
-                merged[ts] = dict(existing)
+        # Merge both histories. REST is authoritative for overlapping timestamps,
+        # while existing WebSocket rows newer than the REST window remain available
+        # as forming candles. This also makes short REST finalization refreshes safe.
+        merged = {int(c["time"]): dict(c) for c in buf.candles}
+        for candle in staged.candles:
+            merged[int(candle["time"])] = dict(candle)
         replacement = CandleBuffer(buf.max_len)
         for ts in sorted(merged):
             replacement.update(merged[ts])
