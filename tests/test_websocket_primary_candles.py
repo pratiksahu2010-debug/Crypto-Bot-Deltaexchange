@@ -190,3 +190,74 @@ def test_partial_rest_refresh_replaces_ws_close_and_preserves_history_and_newer_
     arrays = builder.get_arrays("B-BTC_USDT", "5m")
     assert arrays["time"].tolist() == [0, duration, 2 * duration, 3 * duration, 4 * duration]
     assert arrays["close"].tolist() == [100.0, 101.0, 102.25, 103.25, 200.0]
+
+
+def test_rest_closed_candle_scan_continues_when_websocket_is_unavailable_or_stale(monkeypatch):
+    import asyncio
+    import time
+    from types import SimpleNamespace
+
+    import pytest
+
+    from config import settings
+    from core.engine import SignalEngine
+    from exchange.candle_builder import CandleBuilder
+
+    class ReachedIndicators(Exception):
+        pass
+
+    async def run(websocket):
+        monkeypatch.setattr(settings, "enable_websocket", True)
+        monkeypatch.setattr(settings, "candle_primary_tf", "5m")
+        monkeypatch.setattr(settings, "candle_close_grace_seconds", 0)
+        monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 600)
+
+        duration = 300_000
+        now_ms = int(time.time() * 1000)
+        latest_closed_open = (now_ms // duration) * duration - duration
+        first_open = latest_closed_open - 299 * duration
+        history = [
+            _candle(first_open + i * duration, 100 + i / 1000)
+            for i in range(300)
+        ]
+        builder = CandleBuilder()
+        builder.seed("B-BTC_USDT", "5m", history)
+
+        class Rest:
+            def __init__(self):
+                self.calls = []
+
+            async def get_candles(self, pair, interval, limit):
+                self.calls.append((pair, interval, limit))
+                return history[-limit:]
+
+        rest = Rest()
+        engine = SignalEngine(rest, object(), builder)
+        engine._app = SimpleNamespace(
+            state=SimpleNamespace(websocket=websocket)
+        )
+
+        async def no_op(*args, **kwargs):
+            return None
+
+        engine._update_signal_outcomes = no_op
+        engine._update_strategy_candidate_outcomes = no_op
+        engine._check_pending_retest = no_op
+
+        def stop_at_indicator_calculation(*args, **kwargs):
+            raise ReachedIndicators
+
+        monkeypatch.setattr("core.engine.ema", stop_at_indicator_calculation)
+        with pytest.raises(ReachedIndicators):
+            await engine._process_pair("B-BTC_USDT", "normal")
+
+        # The scanner reached indicator evaluation only after requesting
+        # exchange-finalized candles, rather than vetoing on WS health.
+        assert rest.calls == [("B-BTC_USDT", "5m", 3)]
+
+    class StaleWebSocket:
+        connected = True
+        symbol_feed_age_seconds = {"B-BTC_USDT": {"5m": float("inf")}}
+
+    asyncio.run(run(None))
+    asyncio.run(run(StaleWebSocket()))
