@@ -7,11 +7,13 @@ class RiskLevels:
     entry: float; entry_zone_low: float; entry_zone_high: float
     stop_loss: float; tp1: float; tp2: float; tp3: float
     risk_pct: float; rr1: float; rr2: float; rr3: float; invalidation: float
+    risk_source: str = "STRUCTURE"
 
 def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=1.5,
                    atr_mult_tp1: float=2.0, atr_mult_tp2: float=3.0, atr_mult_tp3: float=4.0,
                    swing_low: Optional[float]=None, swing_high: Optional[float]=None,
-                   cost_bps: Optional[float]=None, min_net_rr: float=0.0) -> Optional[RiskLevels]:
+                   cost_bps: Optional[float]=None, min_net_rr: float=0.0,
+                   allow_atr_fallback: bool=False) -> Optional[RiskLevels]:
     try:
         price = float(price)
         atr = float(atr)
@@ -35,6 +37,28 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
         swing_high = float(swing_high) if swing_high is not None else None
     except (TypeError, ValueError, OverflowError):
         return None
+    risk_source = "STRUCTURE"
+    # A qualified entry must not be discarded solely because no usable pivot is
+    # available (or the nearest pivot is beyond the 3-ATR risk ceiling). When
+    # explicitly enabled by the signal engine, use a clearly-labelled 1.5-ATR
+    # protective stop as a fallback. Structural stops remain preferred.
+    if allow_atr_fallback:
+        if is_long:
+            structural_risk = (price - (swing_low - 0.15 * atr)) if (
+                swing_low is not None and math.isfinite(swing_low)
+                and 0 < swing_low < price
+            ) else float("inf")
+            if not math.isfinite(structural_risk) or structural_risk <= 0 or structural_risk > 3.0 * atr:
+                swing_low = price - 1.35 * atr
+                risk_source = "ATR_FALLBACK_1_5"
+        else:
+            structural_risk = ((swing_high + 0.15 * atr) - price) if (
+                swing_high is not None and math.isfinite(swing_high)
+                and swing_high > price
+            ) else float("inf")
+            if not math.isfinite(structural_risk) or structural_risk <= 0 or structural_risk > 3.0 * atr:
+                swing_high = price + 1.35 * atr
+                risk_source = "ATR_FALLBACK_1_5"
     if is_long:
         if swing_low is None or not math.isfinite(swing_low) or swing_low <= 0 or swing_low >= price:
             return None
@@ -71,7 +95,7 @@ def calculate_risk(price: float, atr: float, direction: str, atr_mult_sl: float=
     rrs=[abs(t-price)/risk for t in targets]
     return RiskLevels(round(price,8),round(zone[0],8),round(zone[1],8),round(sl,8),
         round(targets[0],8),round(targets[1],8),round(targets[2],8),round(risk/price*100,4),
-        round(rrs[0],2),round(rrs[1],2),round(rrs[2],2),round(sl,8))
+        round(rrs[0],2),round(rrs[1],2),round(rrs[2],2),round(sl,8),risk_source)
 
 
 def classify_entry_state(live_price: float, entry: float, zone_low: float,

@@ -60,3 +60,37 @@ def test_short_risk_levels_use_the_same_gross_reward_multipliers():
     assert risk.tp1 == pytest.approx(risk.entry - 2.0 * distance)
     assert risk.tp2 == pytest.approx(risk.entry - 3.0 * distance)
     assert risk.tp3 == pytest.approx(risk.entry - 4.0 * distance)
+
+
+def test_missing_short_structure_uses_explicit_atr_fallback_when_enabled():
+    risk = calculate_risk(100.0, 2.0, "SHORT", allow_atr_fallback=True)
+    assert risk is not None
+    assert risk.risk_source == "ATR_FALLBACK_1_5"
+    assert risk.stop_loss == pytest.approx(103.0)
+    assert risk.tp1 == pytest.approx(94.0)
+    assert risk.tp2 == pytest.approx(91.0)
+    assert risk.tp3 == pytest.approx(88.0)
+
+
+def test_missing_long_structure_uses_explicit_atr_fallback_when_enabled():
+    risk = calculate_risk(100.0, 2.0, "LONG", allow_atr_fallback=True)
+    assert risk is not None
+    assert risk.risk_source == "ATR_FALLBACK_1_5"
+    assert risk.stop_loss == pytest.approx(97.0)
+    assert risk.tp1 == pytest.approx(106.0)
+
+
+def test_valid_structure_remains_preferred_over_atr_fallback():
+    risk = calculate_risk(100.0, 2.0, "SHORT", swing_high=102.0,
+                          allow_atr_fallback=True)
+    assert risk is not None
+    assert risk.risk_source == "STRUCTURE"
+    assert risk.stop_loss == pytest.approx(102.3)
+
+
+def test_out_of_range_structure_uses_bounded_atr_fallback():
+    risk = calculate_risk(100.0, 2.0, "SHORT", swing_high=110.0,
+                          allow_atr_fallback=True)
+    assert risk is not None
+    assert risk.risk_source == "ATR_FALLBACK_1_5"
+    assert risk.stop_loss == pytest.approx(103.0)
