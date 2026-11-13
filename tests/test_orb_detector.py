@@ -111,9 +111,14 @@ def test_london_and_new_york_anchors_shift_with_dst():
 
 def test_session_trade_windows_match_specification():
     asia = candles_for("asia", "LONG")
-    asia_result = evaluate(asia, 0.8, 1.5, session="asia", adx_value=25, plus_di=30, minus_di=15)
+    # The legacy global active_minutes value must not override session-specific windows.
+    asia_result = evaluate(
+        asia, 0.8, 1.5, session="asia", active_minutes=180,
+        adx_value=25, plus_di=30, minus_di=15,
+    )
     assert asia_result["range_end_utc_ms"] - asia_result["session_start_utc_ms"] == 5 * 60_000
-    assert asia_result["session_end_utc_ms"] - asia_result["session_start_utc_ms"] == 245 * 60_000
+    # Asia opens at 00:00 UTC and remains eligible until 04:30 UTC.
+    assert asia_result["session_end_utc_ms"] - asia_result["session_start_utc_ms"] == 270 * 60_000
 
     london = candles_for("london", "LONG")
     london_result = evaluate(london, 0.8, 1.5, session="london", adx_value=25, plus_di=30, minus_di=15)

@@ -75,7 +75,6 @@ if HAS_PYDANTIC:
         orb_min_rvol: float = Field(default=1.5, alias="ORB_MIN_RVOL")
         orb_adx_min: float = Field(default=20.0, alias="ORB_ADX_MIN")
         orb_max_extension_atr: float = Field(default=0.80, alias="ORB_MAX_EXTENSION_ATR")
-        orb_active_minutes: int = Field(default=180, alias="ORB_ACTIVE_MINUTES")
         orb_asia_enabled: bool = Field(default=True, alias="ORB_ASIA_ENABLED")
         orb_late_us_enabled: bool = Field(default=False, alias="ORB_LATE_US_ENABLED")
         orb_sydney_enabled: bool = Field(default=False, alias="ORB_SYDNEY_ENABLED")
@@ -183,7 +182,6 @@ else:
             self.orb_min_rvol = float(os.getenv("ORB_MIN_RVOL", "1.4"))
             self.orb_adx_min = float(os.getenv("ORB_ADX_MIN", "20.0"))
             self.orb_max_extension_atr = float(os.getenv("ORB_MAX_EXTENSION_ATR", "0.80"))
-            self.orb_active_minutes = int(os.getenv("ORB_ACTIVE_MINUTES", "180"))
             self.orb_asia_enabled = os.getenv("ORB_ASIA_ENABLED", "true").lower() == "true"
             self.orb_sydney_enabled = os.getenv("ORB_SYDNEY_ENABLED", "false").lower() == "true"
             self.orb_cme_enabled = os.getenv("ORB_CME_ENABLED", "false").lower() == "true"

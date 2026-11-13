@@ -42,7 +42,8 @@ Normal does not require 15-minute confirmation (15m context is diagnostic only),
 - Crypto ORB runs 24/7 at four documented session opens: Asia/Daily UTC 00:00, London 08:00 Europe/London, New York 09:30 America/New_York, and optional Late US 16:00 America/New_York.
 - Each session builds its opening range from exactly one completed 5-minute candle. OR High/Low are that candle’s high and low.
 - London and New York use IANA time zones, so summer/winter DST shifts are automatic. Asia remains fixed at 00:00 UTC.
-- Asia trades until 04:30 UTC; London and New York trade for four hours after their range closes; optional Late US trades for three hours after its range closes.
+- Asia builds its 00:00-00:05 UTC range and remains eligible until 04:30 UTC (265 minutes after range close); London and New York trade for four hours after their range closes; optional Late US trades for three hours after its range closes.
+- Session durations are defined per session in the ORB detector. There is no global `ORB_ACTIVE_MINUTES` override, preventing one setting from silently shortening or lengthening unrelated sessions.
 - Every session has an independent opening-range calculation, session-anchored VWAP, and RVOL baseline calculated only from volume since that session's open. Overlapping London/New York windows remain independent.
 - ORB alerts require a completed 5-minute close outside that session's own range, at least three directional indicator checks (EMA 9/21 or session VWAP must agree), and session RVOL at or above ORB_MIN_RVOL. No pre-breakout alerts are emitted.
 - A symbol can produce at most one LONG and one SHORT ORB alert per session date; this session/direction lock is durable in the database.
