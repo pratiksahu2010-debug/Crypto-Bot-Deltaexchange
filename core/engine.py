@@ -1008,8 +1008,8 @@ class SignalEngine:
             settings.normal_max_signal_age_seconds if engine == "normal"
             else settings.max_signal_age_seconds
         )
-        # WebSocket is the live primary feed. REST is used only to warm the
-        # 300-bar indicator history or repair a stale/incomplete feed.
+        # WebSocket supplies intrabar updates; REST provides authoritative
+        # completed candles and can independently keep closed-bar scans running.
         primary = settings.candle_primary_tf
         app_state = getattr(getattr(self, "_app", None), "state", None)
         websocket = getattr(app_state, "websocket", None)
