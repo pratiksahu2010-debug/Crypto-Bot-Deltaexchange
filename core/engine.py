@@ -513,6 +513,7 @@ class SignalEngine:
         risk = calculate_risk(
             live_price, atr_v, direction,
             swing_low=res.get("swing_low"), swing_high=res.get("swing_high"),
+            allow_atr_fallback=True,
         )
         if not risk:
             return reject("risk_levels_unavailable")
@@ -1671,6 +1672,7 @@ class SignalEngine:
         risk = calculate_risk(
             close[-1], atr_v or 0, direction,
             swing_low=swing_low, swing_high=swing_high,
+            allow_atr_fallback=True,
         ) if atr_v else None
         strategy = strategy if engine == "normal" else momentum_state
         if not risk:
@@ -1703,6 +1705,7 @@ class SignalEngine:
                 "entry": risk.entry,
                 "entry_zone": [risk.entry_zone_low, risk.entry_zone_high],
                 "stop_loss": risk.stop_loss,
+                "risk_source": risk.risk_source,
                 "tp1": risk.tp1,                "tp2": risk.tp2,
                 "tp3": risk.tp3,
                 "risk_pct": risk.risk_pct,
