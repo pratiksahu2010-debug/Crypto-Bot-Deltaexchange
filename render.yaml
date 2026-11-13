@@ -46,8 +46,6 @@ services:
         value: "1.50"
       - key: ORB_MAX_EXTENSION_ATR
         value: "0.80"
-      - key: ORB_ACTIVE_MINUTES
-        value: "180"
       - key: NORMAL_SYMBOL_LIMIT
         value: "40"
       - key: MOMENTUM_SYMBOL_LIMIT
