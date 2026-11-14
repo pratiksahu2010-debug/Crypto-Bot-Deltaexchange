@@ -162,12 +162,6 @@ class ScoringEngine:
             f"RSI {rsi_value:.1f} supports direction" if rsi_ok else "RSI not directionally aligned")
 
         adx_value = values.get("adx")
-        adx_rising = bool(values.get("adx_rising"))
-        plus_di, minus_di = values.get("plus_di"), values.get("minus_di")
-        di_ok = (
-            plus_di is not None and minus_di is not None
-            and (plus_di > minus_di if is_long else minus_di > plus_di)
-        )
         try:
             configured_adx_floor = float(adx_min)
         except (TypeError, ValueError, OverflowError):
@@ -175,17 +169,11 @@ class ScoringEngine:
         if not math.isfinite(configured_adx_floor):
             configured_adx_floor = 17.0
         full_adx_floor = max(17.0, configured_adx_floor)
-        early_adx_floor = full_adx_floor
         adx_full = adx_value is not None and adx_value >= full_adx_floor
-        adx_early = (
-            adx_value is not None and early_adx_floor <= adx_value < full_adx_floor
-            and adx_rising and di_ok
-        )
-        adx_points = 2.0 if adx_full else 1.0 if adx_early else 0.0
+        adx_points = 2.0 if adx_full else 0.0
         add("ADX 14", adx_points, 2.0, adx_value,
-            f"ADX {adx_value:.1f}; full-strength band" if adx_full else
-            f"ADX {adx_value:.1f}; rising early band with DI alignment" if adx_early else
-            "ADX below strength requirement or early confirmation absent")
+            f"ADX {adx_value:.1f}; minimum {full_adx_floor:.1f} met" if adx_full else
+            f"ADX below minimum {full_adx_floor:.1f}")
 
         atr_value = values.get("atr")
         atr_ok = atr_value is not None and atr_value > 0
@@ -257,7 +245,7 @@ class ScoringEngine:
             adx >= 17.0
         )
         add("ADX Trend Development", 1.0 if adx_ok else 0.0, 1.0, adx,
-            "ADX strong or rising from early band" if adx_ok else "ADX trend development absent")
+            "ADX minimum 17 met" if adx_ok else "ADX below minimum 17")
 
         total = round(sum(item.points for item in components), 2)
         return ScoreResult(total=total, max_total=10.0, components=components, direction=direction)
