@@ -173,7 +173,7 @@ class ScoringEngine:
         except (TypeError, ValueError, OverflowError):
             configured_adx_floor = 17.0
         if not math.isfinite(configured_adx_floor):
-            configured_adx_floor = 25.0
+            configured_adx_floor = 17.0
         full_adx_floor = max(17.0, configured_adx_floor)
         early_adx_floor = full_adx_floor
         adx_full = adx_value is not None and adx_value >= full_adx_floor
