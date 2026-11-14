@@ -278,7 +278,7 @@ def test_mex_score_rewards_early_confirmation_without_lagging_ema_rsi():
         "ema_aligned": False, "structure_break": False,
         "macd_direction_ok": True, "macd_accel": True,
         "roc_direction_ok": True, "rsi": 49.0, "rsi_accel": False,
-        "adx": 16.0, "adx_rising": True, "bw_expand": False,
+        "adx": 17.0, "adx_rising": True, "bw_expand": False,
     }, "LONG")
     assert score.total >= 8.0
     assert score.max_total == 10.0
