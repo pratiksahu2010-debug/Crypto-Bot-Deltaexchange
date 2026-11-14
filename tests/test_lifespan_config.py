@@ -116,11 +116,21 @@ def test_signal_only_and_order_execution_are_hard_disabled():
     assert settings.orders_enabled is False
 
 
-def test_normal_adx_floor_cannot_be_lowered_below_17(monkeypatch):
+@pytest.mark.parametrize(
+    "configured,expected",
+    [
+        (10.0, 17.0),  # values below the hard minimum are clamped up
+        (17.0, 17.0),
+        (18.0, 18.0),  # higher operator-configured floors remain respected
+        (25.0, 25.0),
+    ],
+)
+def test_normal_adx_floor_enforces_17_minimum_without_lowering_higher_config(
+    configured, expected
+):
     from core.engine import _normal_adx_floor
 
-    monkeypatch.setattr(settings, "normal_adx_min", 18.0)
-    assert _normal_adx_floor(settings.normal_adx_min) == 17.0
+    assert _normal_adx_floor(configured) == expected
 
 
 def test_candle_buffer_must_hold_full_indicator_history(monkeypatch):
