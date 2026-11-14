@@ -153,11 +153,11 @@ def test_normal_engine_uses_five_indicator_gates():
     gates = _normal_threshold_gates(indicators, "LONG", 20.0)
     assert set(gates) == {
         "ema_9_21", "vwap_direction", "rsi_direction",
-        "adx_min_25", "atr_valid",
+        "adx_min_17", "atr_valid",
     }
     assert all(gates.values())
     # The production hard floor is 25 even when a caller supplies a lower value.
-    assert _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 20.0)["adx_min_25"] is False
+    assert _normal_threshold_gates({**indicators, "adx": 16.99}, "LONG", 17.0)["adx_min_17"] is False
     assert _normal_threshold_gates({**indicators, "rsi": 49.0}, "LONG", 20.0)["rsi_direction"] is False
 
 
@@ -188,17 +188,17 @@ def test_normal_indicator_trigger_ignores_candle_colour_and_body_shape():
     assert one == two
 
 
-def test_normal_adx_floor_is_25_and_configuration_can_only_raise_it():
+def test_normal_adx_floor_is_17_and_configuration_can_raise_it():
     from core.engine import _normal_threshold_gates
 
     base = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 55.0, "adx": 24.99, "atr": 0.5, "confirm_15m": True,
+        "rsi": 55.0, "adx": 16.99, "atr": 0.5, "confirm_15m": True,
     }
-    assert _normal_threshold_gates(base, "LONG", 18.0)["adx_min_25"] is False
-    assert _normal_threshold_gates(base, "LONG", 22.0)["adx_min_25"] is False
-    assert _normal_threshold_gates({**base, "adx": 25.0}, "LONG", 25.0)["adx_min_25"] is True
-    assert _normal_threshold_gates({**base, "adx": 27.0}, "LONG", 27.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(base, "LONG", 17.0)["adx_min_17"] is False
+    assert _normal_threshold_gates({**base, "adx": 17.0}, "LONG", 17.0)["adx_min_17"] is True
+    assert _normal_threshold_gates({**base, "adx": 21.99}, "LONG", 22.0)["adx_min_17"] is False
+    assert _normal_threshold_gates({**base, "adx": 22.0}, "LONG", 22.0)["adx_min_17"] is True
 
 
 def test_normal_adx_and_rvol_gates_do_not_require_15m_context():
@@ -215,25 +215,25 @@ def test_normal_adx_and_rvol_gates_do_not_require_15m_context():
     assert _normal_relative_volume_gate(indicators, "LONG", 1.2) == {
         "relative_volume": True,
     }
-    assert _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_25"]
+    assert _normal_threshold_gates({**indicators, "adx": 24.99}, "LONG", 22.0)["adx_min_17"]
     assert not _normal_threshold_gates(
-        {**indicators, "adx": 24.99, "adx_rising": False}, "LONG", 22.0
-    )["adx_min_25"]
+        {**indicators, "adx": 21.99, "adx_rising": False}, "LONG", 22.0
+    )["adx_min_17"]
     # A 1.2 configured floor must not be silently raised to 1.4.
     assert _normal_relative_volume_gate(
         {**indicators, "rvol": 1.39}, "LONG", 1.2
     ) == {"relative_volume": True}
 
 
-def test_normal_engine_enforces_adx_floor_of_25_even_if_configured_lower():
+def test_normal_engine_enforces_adx_floor_of_17_even_if_configured_lower():
     from core.engine import _normal_threshold_gates
 
     indicators = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 55.0, "adx": 24.99, "atr": 0.5, "confirm_15m": True,
+        "rsi": 55.0, "adx": 16.99, "atr": 0.5, "confirm_15m": True,
     }
-    assert _normal_threshold_gates(indicators, "LONG", 20.0)["adx_min_25"] is False
-    assert _normal_threshold_gates({**indicators, "adx": 25.0}, "LONG", 25.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(indicators, "LONG", 17.0)["adx_min_17"] is False
+    assert _normal_threshold_gates({**indicators, "adx": 17.0}, "LONG", 17.0)["adx_min_17"] is True
 
 
 def test_15m_context_uses_only_complete_three_bar_groups():
@@ -260,35 +260,35 @@ def test_15m_context_uses_only_complete_three_bar_groups():
 
 
 
-def test_normal_accepts_rising_adx_early_band_only_with_directional_di():
+def test_normal_requires_adx_17_and_directional_di_is_independent():
     from core.engine import _normal_threshold_gates
 
     base = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 56.0, "adx": 22.0, "adx_rising": True, "atr": 0.5,
+        "rsi": 56.0, "adx": 17.0, "adx_rising": True, "atr": 0.5,
         "plus_di": 28.0, "minus_di": 19.0,
     }
-    assert _normal_threshold_gates(base, "LONG", 25.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(base, "LONG", 17.0)["adx_min_17"] is True
     assert _normal_threshold_gates(
-        {**base, "adx_rising": False}, "LONG", 25.0
-    )["adx_min_25"] is False
+        {**base, "adx_rising": False}, "LONG", 17.0
+    )["adx_min_17"] is False
     assert _normal_threshold_gates(
-        {**base, "plus_di": 18.0, "minus_di": 29.0}, "LONG", 25.0
-    )["adx_min_25"] is False
+        {**base, "plus_di": 18.0, "minus_di": 29.0}, "LONG", 17.0
+    )["adx_min_17"] is False
     assert _normal_threshold_gates(
-        {**base, "adx": 19.99}, "LONG", 25.0
-    )["adx_min_25"] is False
+        {**base, "adx": 16.99}, "LONG", 17.0
+    )["adx_min_17"] is False
 
 
-def test_normal_rising_adx_early_band_is_mirrored_for_short():
+def test_normal_adx_17_is_mirrored_for_short():
     from core.engine import _normal_threshold_gates
 
     base = {
         "ema9": 99.0, "ema21": 100.0, "close": 98.5, "vwap": 99.5,
-        "rsi": 44.0, "adx": 23.0, "adx_rising": True, "atr": 0.5,
+        "rsi": 44.0, "adx": 17.0, "adx_rising": True, "atr": 0.5,
         "plus_di": 17.0, "minus_di": 29.0,
     }
-    assert _normal_threshold_gates(base, "SHORT", 25.0)["adx_min_25"] is True
+    assert _normal_threshold_gates(base, "SHORT", 17.0)["adx_min_17"] is True
     assert _normal_threshold_gates(
-        {**base, "plus_di": 30.0, "minus_di": 18.0}, "SHORT", 25.0
-    )["adx_min_25"] is False
+        {**base, "plus_di": 30.0, "minus_di": 18.0}, "SHORT", 17.0
+    )["adx_min_17"] is False
