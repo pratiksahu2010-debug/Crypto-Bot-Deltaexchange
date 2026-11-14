@@ -39,6 +39,13 @@ class DeltaFuturesStream:
         # overwriting a newer update to the same forming candle.
         self._last_candle_event_ms = {}
         self._candle_event_quality = {}
+        # Aggregate-only transport diagnostics; never log raw exchange payloads.
+        self._message_counts = {}
+        self._candle_messages_received = 0
+        self._candle_messages_accepted = 0
+        self._candle_rejections = {}
+        self._last_diagnostics_log_ms = 0
+        self._first_candle_payload_keys = None
         self.on_candle_callback = None
 
     def set_candle_callback(self, callback):
@@ -78,8 +85,23 @@ class DeltaFuturesStream:
         }
 
     def _record_candle_quality(self, pair: str, reason: str) -> None:
-        counts = self._candle_event_quality.setdefault(pair, {})
+        counts = self._candle_event_quality.setdefault(pair or "__unmapped__", {})
         counts[reason] = int(counts.get(reason, 0)) + 1
+        self._candle_rejections[reason] = int(self._candle_rejections.get(reason, 0)) + 1
+
+    def _log_transport_diagnostics(self, force: bool = False) -> None:
+        now_ms = int(time.time() * 1000)
+        if not force and now_ms - self._last_diagnostics_log_ms < 60_000:
+            return
+        self._last_diagnostics_log_ms = now_ms
+        message_types = ",".join(f"{k}:{v}" for k, v in sorted(self._message_counts.items())) or "none"
+        rejected = ",".join(f"{k}:{v}" for k, v in sorted(self._candle_rejections.items())) or "none"
+        logger.info(
+            "DELTA_WS_DIAGNOSTICS connected=%s message_types=%s candle_received=%s candle_accepted=%s rejected=%s sample_payload_keys=%s",
+            self._connected, message_types, self._candle_messages_received,
+            self._candle_messages_accepted, rejected,
+            ",".join(self._first_candle_payload_keys or []) or "none",
+        )
 
     @property
     def price_feed_age_seconds(self):
@@ -272,8 +294,16 @@ class DeltaFuturesStream:
 
     def _handle_message(self, message):
         if not isinstance(message, dict):
+            self._record_candle_quality("", "non_object_message")
+            self._log_transport_diagnostics()
             return
-        kind = str(message.get("type") or "")
+        kind = str(message.get("type") or "<missing>")
+        self._message_counts[kind] = int(self._message_counts.get(kind, 0)) + 1
+        if kind.startswith("candlestick_"):
+            self._candle_messages_received += 1
+            if self._first_candle_payload_keys is None:
+                self._first_candle_payload_keys = sorted(str(k) for k in message.keys())
+        self._log_transport_diagnostics()
         if kind == "heartbeat":
             self._last_event_ms = int(time.time() * 1000)
             self._last_heartbeat_ms = self._last_event_ms
@@ -303,6 +333,12 @@ class DeltaFuturesStream:
                 logger.error("DELTA_WS_SUBSCRIPTION_REJECTED %s", self._subscription_error)
                 return
             self._subscribed_channels = set(acknowledged)
+            acknowledged_count = sum(len(v) for v in acknowledged.values())
+            requested_count = sum(len(v) for v in self._channels.values())
+            logger.info(
+                "DELTA_WS_SUBSCRIPTION_ACK channels=%s symbols_acknowledged=%s symbols_requested=%s",
+                ",".join(sorted(self._subscribed_channels)), acknowledged_count, requested_count,
+            )
             self._connected = True
             self._connected_event.set()
             return
@@ -314,14 +350,17 @@ class DeltaFuturesStream:
             raw_symbol = str(message.get("sy") or message.get("symbol") or "").upper()
             pair = self.rest.canonical_pair_for_symbol(raw_symbol) if self.rest else ""
             if not pair:
+                self._record_candle_quality(raw_symbol or "__empty__", "unknown_symbol")
                 return
             interval = str(message.get("res") or message.get("type", "").removeprefix("candlestick_"))
             if interval not in ("1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "1w"):
+                self._record_candle_quality(pair, "unsupported_interval")
                 return
             interval_ms = int(parse_interval(interval).total_seconds() * 1000)
             raw_ts = message.get("ts")
             stamp = self.rest._timestamp_ms(raw_ts)
             if stamp is None:
+                self._record_candle_quality(pair, "invalid_timestamp")
                 return
             # Delta's compact feed timestamp is microseconds. It may represent
             # the candle update time, so floor it to the resolution boundary.
@@ -383,8 +422,14 @@ class DeltaFuturesStream:
                 except Exception as exc:
                     logger.debug(f"DELTA_WS_CANDLE_CALLBACK_SKIPPED {pair}: {exc}")
             self._last_event_ms = now_ms
+            self._candle_messages_accepted += 1
+            self._log_transport_diagnostics()
         except (TypeError, ValueError, OverflowError):
-            return
+            self._record_candle_quality(
+                str(message.get("sy") or message.get("symbol") or "__unmapped__").upper(),
+                "parse_error",
+            )
+            self._log_transport_diagnostics()
 
     async def stop(self):
         self._running = False
