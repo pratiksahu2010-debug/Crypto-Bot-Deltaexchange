@@ -22,7 +22,7 @@ def evaluate(indicators):
         rvol, expansion, rsi, adx, plus_di, minus_di
     ):
         return False
-    if rvol < 1.25 or expansion < 1.08 or adx < 20.0:
+    if rvol < 1.25 or expansion < 1.08 or adx < 17.0:
         return False
     directional = (
         plus_di > minus_di if direction == "LONG" else minus_di > plus_di
