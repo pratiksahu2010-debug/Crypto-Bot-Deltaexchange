@@ -112,19 +112,7 @@ def _normal_threshold_gates(
     rsi_value, adx_value, atr_value = number("rsi"), number("adx"), number("atr")
     is_long = direction == "LONG"
     full_adx_floor = _normal_adx_floor(adx_min)
-    early_adx_floor = full_adx_floor
-    plus_di, minus_di = number("plus_di"), number("minus_di")
-    di_aligned = bool(
-        plus_di is not None and minus_di is not None
-        and (plus_di > minus_di if is_long else minus_di > plus_di)
-    )
-    adx_rising = indicators.get("adx_rising") is True
-    adx_strength_ok = bool(
-        adx_value is not None and (
-            adx_value >= full_adx_floor
-            or (early_adx_floor <= adx_value < full_adx_floor and adx_rising and di_aligned)
-        )
-    )
+    adx_strength_ok = bool(adx_value is not None and adx_value >= full_adx_floor)
     return {
         "ema_9_21": bool(
             ema9 is not None and ema21 is not None
@@ -1451,8 +1439,7 @@ class SignalEngine:
                 minus_di = float(indicators.get("minus_di"))
             except (TypeError, ValueError, OverflowError):
                 adx_value = plus_di = minus_di = float("nan")
-            # ADX at/above the configured floor passes normally. A rising
-            # ADX in the five-point lower band is accepted only with directional DI.
+            # All Normal entries use the configured ADX floor (minimum 17);
             gates["di_alignment"] = bool(
                 np.isfinite(plus_di) and np.isfinite(minus_di)
                 and (plus_di > minus_di if direction == "LONG" else minus_di > plus_di)
