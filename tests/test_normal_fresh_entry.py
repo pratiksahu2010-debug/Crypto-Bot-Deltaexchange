@@ -260,23 +260,17 @@ def test_15m_context_uses_only_complete_three_bar_groups():
 
 
 
-def test_normal_requires_adx_17_and_directional_di_is_independent():
+def test_normal_requires_adx_17_without_early_band_bypass():
     from core.engine import _normal_threshold_gates
 
     base = {
         "ema9": 101.0, "ema21": 100.0, "close": 101.5, "vwap": 100.5,
-        "rsi": 56.0, "adx": 17.0, "adx_rising": True, "atr": 0.5,
-        "plus_di": 28.0, "minus_di": 19.0,
+        "rsi": 56.0, "adx": 17.0, "adx_rising": False, "atr": 0.5,
+        "plus_di": 18.0, "minus_di": 29.0,
     }
     assert _normal_threshold_gates(base, "LONG", 17.0)["adx_min_17"] is True
     assert _normal_threshold_gates(
-        {**base, "adx_rising": False}, "LONG", 17.0
-    )["adx_min_17"] is False
-    assert _normal_threshold_gates(
-        {**base, "plus_di": 18.0, "minus_di": 29.0}, "LONG", 17.0
-    )["adx_min_17"] is False
-    assert _normal_threshold_gates(
-        {**base, "adx": 16.99}, "LONG", 17.0
+        {**base, "adx": 16.99, "adx_rising": True}, "LONG", 17.0
     )["adx_min_17"] is False
 
 
