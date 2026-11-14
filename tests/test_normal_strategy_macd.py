@@ -54,15 +54,15 @@ def test_normal_strategy_diagnostics_report_all_predicate_results():
     assert not any(checks.values())
 
 
-def test_normal_trend_strategy_uses_adx_20_floor():
+def test_normal_trend_strategy_uses_adx_17_floor():
     from strategies.normal.trend import evaluate
 
     base = {
         "ema9": 103.0, "ema21": 102.0, "ema50": 101.0,
         "close": 105.0, "vwap": 104.0,
     }
-    assert evaluate({**base, "adx": 20.0}, "LONG") is True
-    assert evaluate({**base, "adx": 19.99}, "LONG") is False
+    assert evaluate({**base, "adx": 17.0}, "LONG") is True
+    assert evaluate({**base, "adx": 16.99}, "LONG") is False
 
 
 

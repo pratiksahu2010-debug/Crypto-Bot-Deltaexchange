@@ -48,7 +48,7 @@ def test_explosion_rejects_missing_or_weak_indicator_evidence():
                                    roc_direction_ok=True, rsi_accel=False))
     assert not evaluate(indicators(roc_direction_ok=False, macd_accel=False,
                                    rsi_accel=False))
-    assert not evaluate(indicators(adx=17.99))
+    assert not evaluate(indicators(adx=16.99))
     assert not evaluate(indicators(plus_di=10.0, minus_di=25.0))
     assert not evaluate(indicators(rvol=1.19))
 
@@ -94,7 +94,7 @@ def test_continuation_requires_all_directional_families_and_adx():
     assert diagnose_momentum_state(base)["CONTINUATION"]
     assert not diagnose_momentum_state({**base, "macd_direction_ok": False})["CONTINUATION"]
     assert not diagnose_momentum_state({**base, "ema_aligned": False})["CONTINUATION"]
-    assert not diagnose_momentum_state({**base, "adx": 19.99})["CONTINUATION"]
+    assert not diagnose_momentum_state({**base, "adx": 16.99})["CONTINUATION"]
     assert not diagnose_momentum_state({**base, "rvol": 1.10})["CONTINUATION"]
 
 
@@ -124,12 +124,12 @@ def test_explosion_can_confirm_without_a_textbook_squeeze():
     assert evaluate(setup)
 
 
-def test_explosion_uses_rising_adx_early_band_and_directional_votes():
+def test_explosion_rejects_adx_below_17_even_when_rising():
     setup = indicators(
-        adx=15.5, adx_rising=True, atr_expansion=1.04, rvol=1.22,
+        adx=16.5, adx_rising=True, atr_expansion=1.04, rvol=1.22,
         macd_direction_ok=True, roc_direction_ok=True,
     )
-    assert evaluate(setup)
+    assert not evaluate(setup)
 
 
 def test_explosion_rejects_opposing_di_without_rising_adx():

@@ -179,7 +179,7 @@ def opening_range(candles, session="london", now_ms=None, active_minutes=None):
 def evaluate(
     candles, atr_value, rvol=None, session="london", min_rvol=1.10,
     max_extension_atr=1.50, active_minutes=None, adx_value=None,
-    plus_di=None, minus_di=None, adx_rising=False, adx_min=20.0,
+    plus_di=None, minus_di=None, adx_rising=False, adx_min=17.0,
     max_breakout_age_candles=2, max_pullback_extension_atr=1.50,
 ):
     """Evaluate one independent session ORB using completed 5-minute candles."""
@@ -281,21 +281,14 @@ def evaluate(
         plus_di_v = _finite(plus_di)
         minus_di_v = _finite(minus_di)
         adx_floor = _finite(adx_min)
-        adx_floor = 20.0 if adx_floor is None else adx_floor
+        adx_floor = 17.0 if adx_floor is None else adx_floor
         di_aligned = bool(
             plus_di_v is not None and minus_di_v is not None
             and (plus_di_v > minus_di_v if is_long else minus_di_v > plus_di_v)
         )
-        # Stage 1: a closed candle must clear the range edge with directional
-        # body. Stage 2 uses ADX/DI as quality evidence; rising ADX can qualify
-        # in the lower band, while marginal DI disagreement is scored rather
-        # than automatically vetoing an otherwise clean breakout.
-        adx_ok = bool(
-            adx_v is not None and (
-                adx_v >= adx_floor
-                or (bool(adx_rising) and adx_v >= max(14.0, adx_floor - 6.0) and di_aligned)
-            )
-        )
+        # A uniform ADX floor applies to every ORB signal. Rising ADX and DI
+        # remain diagnostics/quality context but cannot bypass the minimum.
+        adx_ok = bool(adx_v is not None and adx_v >= adx_floor)
         if not adx_ok:
             return _result(
                 "WEAK_TREND", meta, direction=direction,

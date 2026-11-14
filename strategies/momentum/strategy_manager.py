@@ -49,7 +49,7 @@ def is_pre_explosion_signal(indicators: Dict[str, Any]) -> bool:
     if rvol < 1.10 or expansion < 1.0:
         return False
     adx_rising = _flag(indicators, "adx_rising")
-    if adx < 18.0 and not (adx >= 14.0 and adx_rising):
+    if adx < 17.0:
         return False
     if not _flag(indicators, "compression_active"):
         return False

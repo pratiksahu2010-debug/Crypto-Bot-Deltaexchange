@@ -203,14 +203,14 @@ def test_telegram_does_not_label_generic_momentum_as_orb_from_session_metadata()
 
 
 
-def test_orb_rising_adx_can_qualify_in_early_strength_band():
+def test_orb_requires_adx_17_even_when_adx_is_rising():
     result = evaluate(
         candles_for("london", "LONG"), 0.8, 1.5, session="london",
-        min_rvol=1.4, adx_value=15.5, plus_di=30, minus_di=15,
-        adx_rising=True, adx_min=20,
+        min_rvol=1.4, adx_value=16.5, plus_di=30, minus_di=15,
+        adx_rising=True, adx_min=17,
     )
     # Exactly-at-cap extensions must not become extended due to float noise.
-    assert result["state"] == "ORB_BREAKOUT", result
+    assert result["state"] == "WEAK_TREND", result
     assert result["adx_rising"] is True
 
 

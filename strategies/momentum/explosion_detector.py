@@ -46,7 +46,7 @@ def diagnose(indicators: dict) -> dict:
         return {"qualified": False, "reason": "volatility_not_expanding"}
 
     adx_rising = _flag(indicators, "adx_rising")
-    adx_ok = adx >= 18.0 or (adx >= 14.0 and adx_rising)
+    adx_ok = adx >= 17.0
     if not adx_ok:
         return {"qualified": False, "reason": "trend_strength_not_confirmed"}
 

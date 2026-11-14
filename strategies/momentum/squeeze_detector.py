@@ -28,7 +28,7 @@ def evaluate(indicators):
     minus_di = _number(indicators, "minus_di")
     if None in (rvol, expansion, adx, rsi, plus_di, minus_di):
         return False
-    if rvol < 1.25 or expansion < 1.05 or adx < 18.0:
+    if rvol < 1.25 or expansion < 1.05 or adx < 17.0:
         return False
     di_ok = plus_di > minus_di if direction == "LONG" else minus_di > plus_di
     rsi_ok = rsi >= 55.0 if direction == "LONG" else rsi <= 45.0

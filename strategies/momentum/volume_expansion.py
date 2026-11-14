@@ -14,7 +14,7 @@ def evaluate(indicators):
         return False
     if not all(math.isfinite(x) for x in (rvol, expansion, adx, rsi, plus_di, minus_di)):
         return False
-    if rvol < 1.50 or expansion < 1.08 or adx < 20.0:
+    if rvol < 1.50 or expansion < 1.08 or adx < 17.0:
         return False
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
