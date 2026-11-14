@@ -267,7 +267,7 @@ def test_normal_adx_score_uses_only_the_adx_threshold():
     weaker_adx = next(c for c in weaker.components if c.name == "ADX 14")
     assert weaker_adx.points == 0.0
     assert not weaker_adx.valid
-    assert "below strength requirement" in weaker_adx.explanation
+    assert "below minimum 17.0" in weaker_adx.explanation
 
 
 def test_mex_score_rewards_early_confirmation_without_lagging_ema_rsi():
