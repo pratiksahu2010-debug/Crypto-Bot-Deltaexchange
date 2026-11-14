@@ -12,7 +12,7 @@ def evaluate(indicators):
         return False
     if not all(math.isfinite(x) for x in (ratio, adx, plus_di, minus_di)):
         return False
-    if ratio < 1.08 or adx < 20.0:
+    if ratio < 1.08 or adx < 17.0:
         return False
     direction = str(indicators.get("direction", "")).upper()
     if direction not in ("LONG", "SHORT"):
