@@ -14,7 +14,7 @@ def evaluate(indicators: dict, direction: str) -> bool:
 
     if any(value is None for value in (e9, e21, adx, close, vwap)):
         return False
-    if adx < 20:
+    if adx < 17:
         return False
 
     if direction == "LONG":
