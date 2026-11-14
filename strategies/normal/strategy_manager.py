@@ -27,7 +27,7 @@ def diagnose_strategy(indicators: Dict[str, Any], direction: str) -> Dict[str, b
     sign = 1.0 if direction == "LONG" else -1.0
     aligned = e9 is not None and e21 is not None and sign * (e9-e21) > 0
     vwap_side = close is not None and vwap is not None and sign * (close-vwap) > 0
-    trend = bool(aligned and vwap_side and adx is not None and adx >= 20.0)
+    trend = bool(aligned and vwap_side and adx is not None and adx >= 17.0)
     breakout_level = _number(indicators, "orb_breakout_level")
     breakout = bool(
         trend and breakout_level is not None and close is not None
