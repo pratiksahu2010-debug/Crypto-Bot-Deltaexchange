@@ -206,8 +206,8 @@ def test_rest_closed_candle_scan_continues_when_websocket_is_unavailable_or_stal
     class ReachedIndicators(Exception):
         pass
 
-    async def run(websocket):
-        monkeypatch.setattr(settings, "enable_websocket", True)
+    async def run(websocket, websocket_enabled=True):
+        monkeypatch.setattr(settings, "enable_websocket", websocket_enabled)
         monkeypatch.setattr(settings, "candle_primary_tf", "5m")
         monkeypatch.setattr(settings, "candle_close_grace_seconds", 0)
         monkeypatch.setattr(settings, "normal_max_signal_age_seconds", 600)
@@ -261,3 +261,5 @@ def test_rest_closed_candle_scan_continues_when_websocket_is_unavailable_or_stal
 
     asyncio.run(run(None))
     asyncio.run(run(StaleWebSocket()))
+    # REST-only deployments must also refresh finalized candles on every scan.
+    asyncio.run(run(None, websocket_enabled=False))
