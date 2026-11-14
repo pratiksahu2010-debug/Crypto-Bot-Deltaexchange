@@ -282,7 +282,8 @@ def test_normal_adx_17_is_mirrored_for_short():
         "rsi": 44.0, "adx": 17.0, "adx_rising": True, "atr": 0.5,
         "plus_di": 17.0, "minus_di": 29.0,
     }
-    assert _normal_threshold_gates(base, "SHORT", 17.0)["adx_min_17"] is True
+    # ADX strength is independent of DI; directional DI is validated by
+    # the separate engine gate and cannot lower or raise the ADX floor.
     assert _normal_threshold_gates(
         {**base, "plus_di": 30.0, "minus_di": 18.0}, "SHORT", 17.0
-    )["adx_min_17"] is False
+    )["adx_min_17"] is True
