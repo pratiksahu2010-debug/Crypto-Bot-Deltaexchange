@@ -78,7 +78,7 @@ def test_normal_five_condition_gate_rejects_each_missing_confirmation():
     for key, value in (
         ("ema9", 99.0),
         ("close", 100.0),
-        ("adx", 19.99),
+        ("adx", 16.99),
         ("rsi", 50.0),
     ):
         changed = dict(base)
@@ -263,11 +263,11 @@ def test_normal_adx_score_uses_only_the_adx_threshold():
     score = engine.score_normal(base, "LONG")
     adx_component = next(c for c in score.components if c.name == "ADX 14")
     assert adx_component.points == 2.0
-    weaker = engine.score_normal({**base, "adx": 19.99}, "LONG")
+    weaker = engine.score_normal({**base, "adx": 16.99}, "LONG")
     weaker_adx = next(c for c in weaker.components if c.name == "ADX 14")
     assert weaker_adx.points == 0.0
     assert not weaker_adx.valid
-    assert "early confirmation absent" in weaker_adx.explanation
+    assert "below strength requirement" in weaker_adx.explanation
 
 
 def test_mex_score_rewards_early_confirmation_without_lagging_ema_rsi():
@@ -368,39 +368,29 @@ def test_scoring_modes_reject_unknown_direction():
 
 
 
-def test_normal_scoring_gives_partial_adx_credit_only_for_rising_directional_band():
+def test_normal_scoring_requires_adx_17_for_full_adx_credit():
     engine = ScoringEngine()
     base = {
         "close": 102.0, "ema9": 101.0, "ema21": 100.0, "vwap": 101.0,
-        "adx": 22.0, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
+        "adx": 16.99, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
         "rsi": 57.0, "atr": 0.5,
     }
-    early = engine.score_normal(base, "LONG")
-    early_adx = next(c for c in early.components if c.name == "ADX 14")
-    assert early_adx.points == 1.0
-    assert "rising early band" in early_adx.explanation
+    below = engine.score_normal(base, "LONG")
+    assert next(c for c in below.components if c.name == "ADX 14").points == 0.0
 
-    falling = engine.score_normal({**base, "adx_rising": False}, "LONG")
-    assert next(c for c in falling.components if c.name == "ADX 14").points == 0.0
-
-    opposed = engine.score_normal(
-        {**base, "plus_di": 15.0, "minus_di": 30.0}, "LONG"
-    )
-    assert next(c for c in opposed.components if c.name == "ADX 14").points == 0.0
-
-    full = engine.score_normal({**base, "adx": 25.0}, "LONG")
+    full = engine.score_normal({**base, "adx": 17.0}, "LONG")
     assert next(c for c in full.components if c.name == "ADX 14").points == 2.0
 
 
 
-def test_normal_adx_early_band_respects_stricter_configured_floor():
+def test_normal_adx_respects_stricter_configured_floor():
     engine = ScoringEngine()
     base = {
         "close": 102.0, "ema9": 101.0, "ema21": 100.0, "vwap": 101.0,
-        "adx": 27.0, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
+        "adx": 29.99, "adx_rising": True, "plus_di": 28.0, "minus_di": 18.0,
         "rsi": 57.0, "atr": 0.5,
     }
     score = engine.score_normal(base, "LONG", adx_min=30.0)
-    assert next(c for c in score.components if c.name == "ADX 14").points == 1.0
+    assert next(c for c in score.components if c.name == "ADX 14").points == 0.0
     full = engine.score_normal({**base, "adx": 30.0}, "LONG", adx_min=30.0)
     assert next(c for c in full.components if c.name == "ADX 14").points == 2.0
