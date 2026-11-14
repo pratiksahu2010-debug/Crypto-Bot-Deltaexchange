@@ -42,13 +42,13 @@ VALID_MOMENTUM_STATES = frozenset({
 })
 
 
-def _normal_adx_floor(configured: Any = 25.0) -> float:
-    """Enforce the specified Normal ADX minimum of 25; allow stricter overrides."""
+def _normal_adx_floor(configured: Any = 17.0) -> float:
+    """Enforce the shared Normal ADX minimum of 17; allow stricter overrides."""
     try:
         value = float(configured)
     except (TypeError, ValueError, OverflowError):
-        value = 25.0
-    return max(25.0, value) if np.isfinite(value) else 25.0
+        value = 17.0
+    return max(17.0, value) if np.isfinite(value) else 17.0
 
 
 def _score_disposition(score: float, signal_threshold: float) -> str:
@@ -90,14 +90,14 @@ def _momentum_entry_gates(
 
 
 def _normal_threshold_gates(
-    indicators: Dict[str, Any], direction: str, adx_min: float = 25.0,
+    indicators: Dict[str, Any], direction: str, adx_min: float = 17.0,
     strategy: Optional[str] = None,
 ) -> Dict[str, bool]:
     """Core Normal indicator gates; participation and trend strength are checked separately."""
     if direction not in ("LONG", "SHORT") or not isinstance(indicators, dict):
         return {
             "ema_9_21": False, "vwap_direction": False, "rsi_direction": False,
-            "adx_min_25": False, "atr_valid": False,
+            "adx_min_17": False, "atr_valid": False,
         }
 
     def number(key):
@@ -112,7 +112,7 @@ def _normal_threshold_gates(
     rsi_value, adx_value, atr_value = number("rsi"), number("adx"), number("atr")
     is_long = direction == "LONG"
     full_adx_floor = _normal_adx_floor(adx_min)
-    early_adx_floor = max(20.0, full_adx_floor - 5.0)
+    early_adx_floor = full_adx_floor
     plus_di, minus_di = number("plus_di"), number("minus_di")
     di_aligned = bool(
         plus_di is not None and minus_di is not None
@@ -138,7 +138,7 @@ def _normal_threshold_gates(
             rsi_value is not None
             and (rsi_value > 50.0 if is_long else rsi_value < 50.0)
         ),
-        "adx_min_25": adx_strength_ok,
+        "adx_min_17": adx_strength_ok,
         "atr_valid": bool(atr_value is not None and atr_value > 0),
     }
 
