@@ -44,9 +44,9 @@ if HAS_PYDANTIC:
         enable_normal_engine: bool = Field(default=True, alias="ENABLE_NORMAL_ENGINE")
         enable_momentum_engine: bool = Field(default=True, alias="ENABLE_MOMENTUM_ENGINE")
         memory_warning_mb: int = Field(default=400, alias="MEMORY_WARNING_MB")
-        normal_adx_min: float = Field(default=25.0, alias="NORMAL_ADX_MIN")
+        normal_adx_min: float = Field(default=17.0, alias="NORMAL_ADX_MIN")
         normal_rvol_min: float = Field(default=1.4, alias="NORMAL_RVOL_MIN")
-        momentum_adx_explosion: float = Field(default=18.0, alias="MOMENTUM_ADX_MIN")
+        momentum_adx_explosion: float = Field(default=17.0, alias="MOMENTUM_ADX_MIN")
         # --- Normal engine: fresh-entry rules (see strategies/normal/entry_trigger.py) ---
         normal_max_signal_age_seconds: int = Field(default=60, alias="NORMAL_MAX_SIGNAL_AGE_SECONDS")
         normal_retest_ttl_seconds: int = Field(default=300, alias="NORMAL_RETEST_TTL_SECONDS")
@@ -73,7 +73,7 @@ if HAS_PYDANTIC:
         orb_london_enabled: bool = Field(default=True, alias="ORB_LONDON_ENABLED")
         orb_new_york_enabled: bool = Field(default=True, alias="ORB_NEW_YORK_ENABLED")
         orb_min_rvol: float = Field(default=1.5, alias="ORB_MIN_RVOL")
-        orb_adx_min: float = Field(default=20.0, alias="ORB_ADX_MIN")
+        orb_adx_min: float = Field(default=17.0, alias="ORB_ADX_MIN")
         orb_max_extension_atr: float = Field(default=0.80, alias="ORB_MAX_EXTENSION_ATR")
         orb_active_minutes: int = Field(default=180, alias="ORB_ACTIVE_MINUTES")
         orb_asia_enabled: bool = Field(default=True, alias="ORB_ASIA_ENABLED")
@@ -148,9 +148,9 @@ else:
             self.enable_normal_engine = os.getenv("ENABLE_NORMAL_ENGINE", "true").lower() == "true"
             self.enable_momentum_engine = os.getenv("ENABLE_MOMENTUM_ENGINE", "true").lower() == "true"
             self.memory_warning_mb = int(os.getenv("MEMORY_WARNING_MB", "400"))
-            self.normal_adx_min = float(os.getenv("NORMAL_ADX_MIN", "25.0"))
+            self.normal_adx_min = float(os.getenv("NORMAL_ADX_MIN", "17.0"))
             self.normal_rvol_min = float(os.getenv("NORMAL_RVOL_MIN", "1.4"))
-            self.momentum_adx_explosion = float(os.getenv("MOMENTUM_ADX_MIN", "18.0"))
+            self.momentum_adx_explosion = float(os.getenv("MOMENTUM_ADX_MIN", "17.0"))
             self.normal_max_signal_age_seconds = int(os.getenv("NORMAL_MAX_SIGNAL_AGE_SECONDS", "60"))
             self.normal_retest_ttl_seconds = int(os.getenv("NORMAL_RETEST_TTL_SECONDS", "300"))
             self.normal_max_trigger_age_candles = int(os.getenv("NORMAL_MAX_TRIGGER_AGE_CANDLES", "1"))
@@ -181,7 +181,7 @@ else:
             self.orb_new_york_enabled = os.getenv("ORB_NEW_YORK_ENABLED", "true").lower() == "true"
             self.orb_late_us_enabled = os.getenv("ORB_LATE_US_ENABLED", "false").lower() == "true"
             self.orb_min_rvol = float(os.getenv("ORB_MIN_RVOL", "1.4"))
-            self.orb_adx_min = float(os.getenv("ORB_ADX_MIN", "20.0"))
+            self.orb_adx_min = float(os.getenv("ORB_ADX_MIN", "17.0"))
             self.orb_max_extension_atr = float(os.getenv("ORB_MAX_EXTENSION_ATR", "0.80"))
             self.orb_active_minutes = int(os.getenv("ORB_ACTIVE_MINUTES", "180"))
             self.orb_asia_enabled = os.getenv("ORB_ASIA_ENABLED", "true").lower() == "true"
