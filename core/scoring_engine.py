@@ -131,7 +131,7 @@ class ScoringEngine:
         "roc": 0.5,
     }
 
-    def score_normal(self, indicators: Dict[str, Any], direction: str, adx_min: float = 25.0) -> ScoreResult:
+    def score_normal(self, indicators: Dict[str, Any], direction: str, adx_min: float = 17.0) -> ScoreResult:
         """Score the five Normal indicators; maximum score is 8.5 points."""
         _validate_direction(direction)
         values = _validated_indicators(indicators)
@@ -171,11 +171,11 @@ class ScoringEngine:
         try:
             configured_adx_floor = float(adx_min)
         except (TypeError, ValueError, OverflowError):
-            configured_adx_floor = 25.0
+            configured_adx_floor = 17.0
         if not math.isfinite(configured_adx_floor):
             configured_adx_floor = 25.0
-        full_adx_floor = max(25.0, configured_adx_floor)
-        early_adx_floor = max(20.0, full_adx_floor - 5.0)
+        full_adx_floor = max(17.0, configured_adx_floor)
+        early_adx_floor = full_adx_floor
         adx_full = adx_value is not None and adx_value >= full_adx_floor
         adx_early = (
             adx_value is not None and early_adx_floor <= adx_value < full_adx_floor
@@ -254,7 +254,7 @@ class ScoringEngine:
 
         adx = values.get("adx")
         adx_ok = adx is not None and (
-            adx >= 18.0 or (adx >= 14.0 and bool(values.get("adx_rising")))
+            adx >= 17.0
         )
         add("ADX Trend Development", 1.0 if adx_ok else 0.0, 1.0, adx,
             "ADX strong or rising from early band" if adx_ok else "ADX trend development absent")
